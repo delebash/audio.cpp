@@ -1,7 +1,7 @@
 {
   "family": "chatterbox_turbo",
   "display_name": "Chatterbox Turbo",
-  "description": "Resemble AI's distilled 350M Chatterbox Turbo: GPT2 T3 backbone, GPT2 BPE tokenizer, and a 2-step meanflow S3Gen decoder for fast English TTS with a built-in voice.",
+  "description": "Resemble AI's distilled 350M Chatterbox Turbo: GPT2 T3 backbone, GPT2 BPE tokenizer, and a 2-step meanflow S3Gen decoder for fast English TTS. A package converted from Resemble's checkpoint with tools/community_models/chatterbox_turbo/convert_chatterbox_turbo.py (Turbo or Nano) also carries the voice encoder and speech tokenizer and clones a voice from a reference clip; otherwise it speaks its built-in voice.",
   "category": "tts",
   "status": "testing",
   "tasks": [
@@ -13,7 +13,12 @@
   "languages": [
     "en"
   ],
-  "capabilities": {},
+  "capabilities": {
+    "tts": [
+      "speaker_reference",
+      "built_in_voices"
+    ]
+  },
   "runtime": {
     "tags": [
       "gguf"
@@ -23,6 +28,7 @@
     "recommended_package": "chatterbox_turbo_q8_0",
     "tags": [
       "TTS",
+      "Clone",
       "GGUF"
     ],
     "docs": [
@@ -87,6 +93,10 @@
         "s3gen_weights": {
           "source": "weights:",
           "prefix": "s3gen"
+        },
+        "voice_encoder_weights": {
+          "source": "weights:",
+          "prefix": "voice_encoder"
         }
       }
     }

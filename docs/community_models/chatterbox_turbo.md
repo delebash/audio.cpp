@@ -1,17 +1,65 @@
+<!-- Modified in delebash/audio.cpp (JustVoice's copy of audio.cpp), 2026-10-03: Chatterbox Turbo and
+Nano clone a voice from a package converted from Resemble's checkpoint. -->
 # Chatterbox Turbo (community model)
 
 [Chatterbox Turbo](https://huggingface.co/ResembleAI/chatterbox-turbo) is Resemble AI's
 distilled 350M-parameter sibling of Chatterbox (see [the Chatterbox section in docs/tts.md](../tts.md#chatterbox)): a GPT2-style T3
 backbone (vs. the base model's 0.5B Llama-style backbone), a GPT2 BPE tokenizer with 19 built-in
 emotion/style tags (`[laugh]`, `[sigh]`, ...), and a 2-step meanflow-distilled S3Gen decoder (vs.
-the base model's 10-step CFG decoder) for substantially faster built-in-voice TTS. English-only.
+the base model's 10-step CFG decoder) for substantially faster TTS. English-only.
+[Chatterbox Nano](https://huggingface.co/ResembleAI/chatterbox-nano) is Turbo's architecture
+with a GPT2-small T3 (12 heads against Turbo's 16) and loads as the same family.
 
 **Status: testing.** The T3 backbone and the built-in default voice both load and generate
-audio end to end. Custom voice cloning is not supported. This family lives under `community_models` rather than the core
+audio end to end, and a package converted from Resemble's checkpoint clones a voice from a
+reference clip (below). This family lives under `community_models` rather than the core
 model tree because it does not yet have the CUDA/Vulkan/Metal runtime test coverage core models
 carry.
 
-## Packaging: audio.cpp-native, self-contained GGUF
+## Converting Resemble's checkpoint (clones; Turbo or Nano)
+
+[`tools/community_models/chatterbox_turbo/convert_chatterbox_turbo.py`](../../tools/community_models/chatterbox_turbo/convert_chatterbox_turbo.py)
+converts Resemble AI's own MIT checkpoint, Turbo or Nano, into one self-contained GGUF that
+**keeps the three encoders a reference clip needs**: the LSTM voice encoder (`voice_encoder/*`,
+T3's speaker embedding), the S3 speech tokenizer (`s3gen/tokenizer.*`, the prompt tokens) and
+CAMPPlus (`s3gen/speaker_encoder.*`, the decoder's speaker embedding). They are byte-identical to
+base Chatterbox's own (`ResembleAI/chatterbox`'s `ve.safetensors` and `s3gen.safetensors`), so the
+Turbo session builds a voice with base Chatterbox's conditionals component, under Turbo's own
+settings from upstream `tts_turbo.py`: a clip longer than 5 s, loudness-normalised to -27 LUFS
+(ITU-R BS.1770, as pyloudnorm measures it), a 375-token T3 prompt from the first 15 s and a
+decoder prompt from the first 10 s. Prepared clips are kept per clip
+(`conditionals_cache_slots`, one by default, as in base Chatterbox).
+
+The rest is renamed to what the existing loaders read: GPT-2's Conv1D weights are transposed
+into `blk.N.*`, the HiFT vocoder's weight norm is folded into `v.*`, the head count goes into
+`t3/hparams.num_heads`, and the built-in voice is read from `conds.pt` without torch. The
+tokenizer sidecars come out byte-identical to the repacked package's.
+
+```bash
+# 1. Build the converter
+cmake --build build/debug --parallel --target audiocpp_gguf
+
+# 2. Resemble's checkpoint (Turbo; for Nano use ResembleAI/chatterbox-nano and t3_nano_v1.safetensors)
+hf download ResembleAI/chatterbox-turbo \
+    t3_turbo_v1.safetensors s3gen_meanflow.safetensors ve.safetensors conds.pt \
+    vocab.json merges.txt added_tokens.json --local-dir /tmp/chatterbox-turbo
+
+# 3. Convert (q8_0 or f16)
+pip install numpy safetensors
+python3 tools/community_models/chatterbox_turbo/convert_chatterbox_turbo.py \
+    --checkpoint /tmp/chatterbox-turbo \
+    --output models/Chatterbox-Turbo-GGUF/chatterbox-turbo-q8_0.gguf --type q8_0 --overwrite
+```
+
+Clone with `--voice-ref`:
+
+```bash
+audiocpp_cli --task tts --family chatterbox_turbo \
+    --model models/Chatterbox-Turbo-GGUF/chatterbox-turbo-q8_0.gguf \
+    --backend cuda --voice-ref speaker.wav --text "Hello from Chatterbox Turbo." --out out.wav
+```
+
+## Packaging: the repacked third-party GGUF (built-in voice only)
 
 Resemble AI has not published Chatterbox Turbo weights in a format audio.cpp can convert
 directly. The only available conversion is a **third-party GGUF**,
@@ -39,8 +87,8 @@ repacks it offline into one self-contained, audio.cpp-native GGUF:
   producing one file that loads with nothing else needed, like every other GGUF family here.
 
 The `ve.*` (LSTM speaker-verification voice encoder) and `s3.se.*`/`s3.tok.*` (ResNet speaker
-encoder / S3 speech tokenizer) sections of the upstream checkpoint are not repacked: nothing in
-this codebase reads them yet (see Current limitations above).
+encoder / S3 speech tokenizer) sections of the upstream checkpoint are not repacked, so this
+package speaks only its built-in voice and rejects `--voice-ref`, naming the converter above.
 
 ### Repacking it yourself
 
@@ -80,3 +128,5 @@ table.
 | Model | Source | License |
 |---|---|---|
 | Chatterbox Turbo (T3 + S3Gen) | `cstr/chatterbox-turbo-GGUF` (third-party repack of `ResembleAI/chatterbox-turbo`) | MIT |
+| Chatterbox Turbo, cloning (T3 + S3Gen + encoders) | `ResembleAI/chatterbox-turbo` via `convert_chatterbox_turbo.py` | MIT |
+| Chatterbox Nano, cloning (T3 + S3Gen + encoders) | `ResembleAI/chatterbox-nano` via `convert_chatterbox_turbo.py` | MIT |

@@ -1,3 +1,5 @@
+<!-- Modified in delebash/audio.cpp (JustVoice's copy of audio.cpp), 2026-10-03: Chatterbox Turbo and
+Nano clone a voice from a package converted from Resemble's checkpoint. -->
 # TTS Models
 
 | Model | Family | Task(s) | Quick Start |
@@ -115,21 +117,26 @@ Chatterbox Turbo is a [community model](community_models/chatterbox_turbo.md): R
 distilled 350M-parameter sibling of Chatterbox, with a GPT2-style T3 backbone (vs. the base
 model's 0.5B Llama-style backbone), a GPT2 BPE tokenizer with 19 built-in emotion/style tags
 (`[laugh]`, `[sigh]`, ...), and a 2-step meanflow-distilled S3Gen decoder (vs. the base model's
-10-step CFG decoder) for substantially faster built-in-voice TTS. It is English-only.
+10-step CFG decoder) for substantially faster TTS. It is English-only. Chatterbox Nano, Resemble's
+smaller GPT2 sibling of Turbo, is the same family.
 
 `chatterbox_turbo` is a separate model family from `chatterbox` (not a variant selectable within
 it): its T3 backbone and tokenizer differ from the base model's, and it reuses base Chatterbox's
 own S3Gen/HiFT-vocoder loader code for the flow decoder and vocoder half.
 
-The package is one self-contained, audio.cpp-native GGUF produced by repacking Resemble AI's
-weights (via the third-party `cstr/chatterbox-turbo-GGUF` conversion published for the CrispASR
-project, MIT-relicensed) with
-[`tools/community_models/chatterbox_turbo/repack_chatterbox_turbo_gguf.py`](../tools/community_models/chatterbox_turbo/repack_chatterbox_turbo_gguf.py)
-— see that model's community doc for details.
+The package is one self-contained, audio.cpp-native GGUF, made one of two ways (see the model's
+community doc):
 
-**Current limitations:** only the built-in default voice baked into the package is supported.
-Custom voice cloning is not supported; `--voice-ref` is rejected with an explicit error rather
-than silently ignored.
+- [`tools/community_models/chatterbox_turbo/convert_chatterbox_turbo.py`](../tools/community_models/chatterbox_turbo/convert_chatterbox_turbo.py)
+  converts Resemble AI's own checkpoint (`ResembleAI/chatterbox-turbo` or
+  `ResembleAI/chatterbox-nano`) and keeps the voice encoder and speech tokenizer, so the package
+  **clones a voice** from `--voice-ref` as well as speaking its built-in voice;
+- [`tools/community_models/chatterbox_turbo/repack_chatterbox_turbo_gguf.py`](../tools/community_models/chatterbox_turbo/repack_chatterbox_turbo_gguf.py)
+  repacks the third-party `cstr/chatterbox-turbo-GGUF` conversion without them, so that package
+  speaks only its built-in voice and rejects `--voice-ref` with an explicit error.
+
+A reference clip must be longer than 5 seconds. As upstream does, it is loudness-normalised to
+-27 LUFS, and the first 15 s give T3's 375-token prompt and the first 10 s the decoder's.
 
 | Field | Value |
 |---|---|
@@ -138,7 +145,7 @@ than silently ignored.
 | Tasks | `tts` |
 | Modes | `offline` |
 | Languages | `en` |
-| Voice input | Not supported — omit `--voice-ref` to use the built-in voice |
+| Voice input | Optional `--voice-ref` (longer than 5 s), on a package from `convert_chatterbox_turbo.py`; omit it for the built-in voice |
 | Built-in voices | One, embedded in the package |
 
 ```bash
@@ -152,6 +159,7 @@ audiocpp_cli --task tts --family chatterbox_turbo --model models/Chatterbox-Turb
 | `top_k` (session option) | integer | `1000` | T3 top-k sampling limit. |
 | `--repetition-penalty` | float | `1.2` | T3 repetition penalty. |
 | `--max-tokens` | integer | `1000` | Maximum generated T3 tokens. |
+| `conditionals_cache_slots` (session option) | integer | `1` | Prepared reference clips kept, as base Chatterbox keeps them. |
 
 `--guidance-scale`/exaggeration/min_p have no effect on Turbo (it was distilled without CFG) and are accepted but ignored, matching upstream's own behavior.
 

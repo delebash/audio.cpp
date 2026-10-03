@@ -1,8 +1,11 @@
+// Modified in delebash/audio.cpp (JustVoice's copy of audio.cpp), 2026-10-03: a speaker reference
+// clip is cloned (kept per clip) when the package carries the encoders.
 #include "engine/community_models/chatterbox_turbo/session.h"
 
 #include "engine/framework/runtime/options.h"
 #include "engine/framework/text/chunking.h"
 
+#include <cstdint>
 #include <stdexcept>
 
 namespace engine::community_models::chatterbox_turbo {
@@ -41,13 +44,29 @@ ChatterboxTurboGenerateConfig make_generate_config(const std::unordered_map<std:
     return config;
 }
 
+// Prepared voices kept per reference clip, as core Chatterbox keeps its conditionals
+// (chatterbox.conditionals_cache_slots; one slot by default there and here).
+std::size_t resolve_voice_cache_slots(const runtime::SessionOptions & options) {
+    const int64_t slots = runtime::parse_i64_option(
+        options.options,
+        {"chatterbox_turbo.conditionals_cache_slots", "conditionals_cache_slots"})
+        .value_or(1);
+    if (slots < 0) {
+        throw std::runtime_error("chatterbox_turbo.conditionals_cache_slots must be non-negative");
+    }
+    return static_cast<std::size_t>(slots);
+}
+
 }  // namespace
 
 ChatterboxTurboSession::ChatterboxTurboSession(
     runtime::TaskSpec task,
     runtime::SessionOptions options,
     std::shared_ptr<const ChatterboxTurboAssets> assets)
-    : RuntimeSessionBase(options), task_(std::move(task)), assets_(std::move(assets)) {
+    : RuntimeSessionBase(options),
+      task_(std::move(task)),
+      assets_(std::move(assets)),
+      voice_cache_(resolve_voice_cache_slots(this->options())) {
     if (!assets_) {
         throw std::runtime_error("Chatterbox Turbo session requires assets");
     }
@@ -77,13 +96,20 @@ void ChatterboxTurboSession::prepare(const runtime::SessionPreparationRequest & 
     if (!request.text.has_value() || request.text->text.empty()) {
         throw std::runtime_error("Chatterbox Turbo prepare requires text input");
     }
-    if (request.voice.has_value() && request.voice->speaker.has_value() && request.voice->speaker->audio.has_value()) {
-        throw std::runtime_error(
-            "Chatterbox Turbo does not support custom voice cloning (only the built-in default voice) "
-            "-- omit the speaker reference audio to use the built-in voice");
-    }
     if (!component_) {
         component_ = std::make_unique<ChatterboxTurboTTSComponent>(assets_, execution_context());
+    }
+    voice_.reset();
+    if (request.voice.has_value() && request.voice->speaker.has_value() && request.voice->speaker->audio.has_value()) {
+        // A package without the encoders refuses here, naming the converter that adds them.
+        const auto & reference = *request.voice->speaker->audio;
+        if (const auto * cached = voice_cache_.find(reference)) {
+            voice_ = *cached;
+        } else {
+            auto prepared = component_->prepare_voice(reference);
+            voice_ = prepared;
+            voice_cache_.put(reference, std::move(prepared));
+        }
     }
     mark_prepared();
 }
@@ -100,7 +126,8 @@ runtime::TaskResult ChatterboxTurboSession::run(const runtime::TaskRequest & req
 
     runtime::AudioBuffer merged_audio;
     for (const auto & chunk_request : chunk_requests) {
-        const auto outputs = component_->generate(chunk_request.text_input->text, config);
+        const auto outputs = component_->generate(
+            chunk_request.text_input->text, config, voice_.has_value() ? &*voice_ : nullptr);
         runtime::append_audio_buffer(merged_audio, runtime::AudioBuffer{24000, 1, outputs.waveform});
     }
 

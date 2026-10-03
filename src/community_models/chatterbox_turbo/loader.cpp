@@ -1,3 +1,5 @@
+// Modified in delebash/audio.cpp (JustVoice's copy of audio.cpp), 2026-10-03: a package with the
+// encoders advertises a speaker reference.
 #include "engine/community_models/chatterbox_turbo/loader.h"
 
 #include "engine/community_models/chatterbox_turbo/session.h"
@@ -6,16 +8,17 @@
 
 #include <memory>
 #include <stdexcept>
+#include <string>
 
 namespace engine::community_models::chatterbox_turbo {
 
 namespace {
 
-runtime::CapabilitySet capabilities(const ChatterboxTurboAssets &) {
+runtime::CapabilitySet capabilities(const ChatterboxTurboAssets & assets) {
     runtime::CapabilitySet out;
     out.supported_tasks.push_back({runtime::VoiceTaskKind::Tts, {runtime::RunMode::Offline}});
     out.languages = {"en"};
-    out.supports_speaker_reference = false;
+    out.supports_speaker_reference = chatterbox_turbo_can_clone(assets);
     out.supports_style_condition = false;
     return out;
 }
@@ -25,8 +28,10 @@ runtime::ModelMetadata metadata(const ChatterboxTurboAssets & assets) {
     out.family = "chatterbox_turbo";
     out.variant = assets.resources.model_root().filename().string();
     out.description =
-        "Chatterbox Turbo (distilled GPT2 T3 backbone + meanflow S3Gen decoder) loaded from local assets. "
-        "Built-in default voice only.";
+        "Chatterbox Turbo (distilled GPT2 T3 backbone + meanflow S3Gen decoder) loaded from local assets. " +
+        std::string(chatterbox_turbo_can_clone(assets)
+            ? "Clones a voice from a reference clip, or speaks its built-in voice."
+            : "Built-in default voice only (this package has no voice encoder or speech tokenizer).");
     return out;
 }
 
@@ -40,7 +45,9 @@ public:
         runtime::CapabilitySet out;
         out.supported_tasks.push_back({runtime::VoiceTaskKind::Tts, {runtime::RunMode::Offline}});
         out.languages = {"en"};
-        out.supports_speaker_reference = false;
+        // A package converted from Resemble's checkpoint (convert_chatterbox_turbo.py) clones;
+        // the older repacked one speaks only its built-in voice -- see capabilities(assets).
+        out.supports_speaker_reference = true;
         out.supports_style_condition = false;
         return out;
     }

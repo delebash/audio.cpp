@@ -1,6 +1,9 @@
+// Modified in delebash/audio.cpp (JustVoice's copy of audio.cpp), 2026-10-03: the head count comes
+// from the GGUF when it says, so Chatterbox Nano (12 heads) loads.
 #include "engine/community_models/chatterbox_turbo/t3_turbo_component.h"
 
 #include <cstdint>
+#include <cstring>
 #include <stdexcept>
 
 namespace engine::community_models::chatterbox_turbo {
@@ -87,7 +90,22 @@ std::shared_ptr<const T3TurboInferenceWeights> load_t3_turbo_inference_weights(
     weights->speech_vocab = speech_emb_info.shape.at(0);
     weights->max_positions = wpe_info.shape.at(0);
     weights->speaker_embed_size = source.require_metadata("cond.spkr_enc.weight").shape.at(1);
+    // Turbo is GPT-2 medium (16 heads) and Nano GPT-2 small (12). A GGUF converted with
+    // convert_chatterbox_turbo.py says which in hparams.num_heads; the older repacked Turbo GGUF
+    // has no such tensor and is Turbo.
     weights->num_heads = 16;
+    if (source.has_tensor("hparams.num_heads")) {
+        const auto raw = source.require_tensor_data("hparams.num_heads");
+        if (raw.metadata.dtype != "i32" || raw.bytes.size() != sizeof(int32_t)) {
+            throw std::runtime_error("Chatterbox Turbo expected hparams.num_heads as one i32");
+        }
+        int32_t heads = 0;
+        std::memcpy(&heads, raw.bytes.data(), sizeof(heads));
+        if (heads <= 0 || weights->hidden_size % heads != 0) {
+            throw std::runtime_error("Chatterbox Turbo hparams.num_heads does not divide the hidden size");
+        }
+        weights->num_heads = heads;
+    }
     weights->mlp_intermediate_size = source.require_metadata("blk.0.ffn_fc.weight").shape.at(0);
 
     const int64_t hidden = weights->hidden_size;

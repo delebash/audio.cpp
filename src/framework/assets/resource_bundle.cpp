@@ -1,3 +1,5 @@
+// Modified in delebash/audio.cpp (JustVoice's copy of audio.cpp), 2026-10-03: has_tensor_source,
+// so a model can treat a tensor source as optional.
 #include "engine/framework/assets/resource_bundle.h"
 
 #include "engine/framework/io/filesystem.h"
@@ -126,6 +128,11 @@ engine::io::json::Value ResourceBundle::parse_jsonc(std::string_view id) const {
 
 engine::io::yaml::FlattenedDocument ResourceBundle::parse_flattened_yaml(std::string_view id) const {
     return engine::io::yaml::parse_flattened_document(read_text(id));
+}
+
+bool ResourceBundle::has_tensor_source(std::string_view id) const noexcept {
+    const auto key = std::string(id);
+    return tensor_resources_.find(key) != tensor_resources_.end() || files_.find(key) != files_.end();
 }
 
 std::shared_ptr<const TensorSource> ResourceBundle::open_tensor_source(std::string_view id) const {
