@@ -1,3 +1,5 @@
+// Modified in delebash/audio.cpp (JustVoice's copy of audio.cpp), 2026-10-03: the voice_pack
+// request option — a caller's blend as the style pack.
 #pragma once
 
 #include "engine/framework/model_spec/metadata.h"
@@ -73,6 +75,10 @@ private:
     DecoderCapacityContract make_decoder_capacity_contract(int64_t decoder_frame_capacity) const;
     void prepare_graph_capacity(int64_t capacity);
     void prepare_decoder_graph_capacity(int64_t capacity);
+    // The `voice_pack` request option's pack (a caller's blend), or nullptr when the request
+    // names none. Loaded once per file version and kept.
+    const KokoroVoicePack * voice_pack_for_request(const std::unordered_map<std::string, std::string> & options);
+    std::unordered_map<std::string, std::shared_ptr<KokoroVoicePack>> voice_packs_;
 
     runtime::TaskSpec task_;
     std::shared_ptr<const KokoroAssets> assets_;

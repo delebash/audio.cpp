@@ -1,3 +1,5 @@
+// Modified in delebash/audio.cpp (JustVoice's copy of audio.cpp), 2026-10-03: the voice_pack
+// request option — a caller's blend as the style pack.
 #include "engine/models/kokoro_tts/session.h"
 
 #include "engine/framework/debug/profiler.h"
@@ -13,6 +15,7 @@
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -246,6 +249,9 @@ namespace {
 
 constexpr const char * kPhonemesOption = "phonemes";
 constexpr const char * kTimestampsOption = "return_timestamps";
+// A path to a raw little-endian float32 file of rows × 256 — the format of the package's own
+// voices/<id>.bin — used as the style pack in place of the voice's (a caller's blend).
+constexpr const char * kVoicePackOption = "voice_pack";
 
 /// The supplied phoneme chunks, or empty when the caller set no such option.
 ///
@@ -338,14 +344,16 @@ void validate_request_options(
     const bool old_speed = contract.request_option_keys.find("speed") == contract.request_option_keys.end();
     const bool old_speaking_rate = contract.request_option_keys.find("speaking_rate") == contract.request_option_keys.end();
     const bool old_timestamps = contract.request_option_keys.find(kTimestampsOption) == contract.request_option_keys.end();
-    if (!old_phonemes && !old_speed && !old_speaking_rate && !old_timestamps) {
+    // `voice_pack` arrived after every published package, so no embedded contract lists it.
+    const bool old_voice_pack = contract.request_option_keys.find(kVoicePackOption) == contract.request_option_keys.end();
+    if (!old_phonemes && !old_speed && !old_speaking_rate && !old_timestamps && !old_voice_pack) {
         runtime::validate_spec_backed_request_options(options, option_arrays, contract, kModelName);
         return;
     }
     std::unordered_map<std::string, std::string> validation_options;
     for (const auto & [key, _] : options) {
         if ((key == "speed" && old_speed) || (key == "speaking_rate" && old_speaking_rate) ||
-            (key == kTimestampsOption && old_timestamps)) continue;
+            (key == kTimestampsOption && old_timestamps) || (key == kVoicePackOption && old_voice_pack)) continue;
         validation_options.emplace(key, std::string{});
     }
     // Keys only: the validator reads names, not the supplied values.
@@ -512,9 +520,47 @@ void append_kokoro_word_timings(
     }
 }
 
+const KokoroVoicePack * KokoroTTSSession::voice_pack_for_request(
+    const std::unordered_map<std::string, std::string> & options) {
+    const auto path_value = runtime::find_option(options, {kVoicePackOption});
+    if (!path_value.has_value() || path_value->empty()) {
+        return nullptr;
+    }
+    const std::filesystem::path path(*path_value);
+    std::error_code ec;
+    const auto size = std::filesystem::file_size(path, ec);
+    if (ec) {
+        throw std::runtime_error("Kokoro voice_pack file not found: " + *path_value);
+    }
+    const auto modified = std::filesystem::last_write_time(path, ec).time_since_epoch().count();
+    const std::string key = *path_value + ":" + std::to_string(size) + ":" + std::to_string(modified);
+    if (const auto it = voice_packs_.find(key); it != voice_packs_.end()) {
+        return it->second.get();
+    }
+    constexpr uintmax_t kRowBytes = 256 * sizeof(float);
+    if (size == 0 || size % kRowBytes != 0) {
+        throw std::runtime_error(
+            "Kokoro voice_pack must be rows x 256 float32 values: " + *path_value +
+            " is " + std::to_string(size) + " bytes");
+    }
+    auto pack = std::make_shared<KokoroVoicePack>();
+    pack->id = "pack:" + key;
+    pack->rows = static_cast<int64_t>(size / kRowBytes);
+    pack->cols = 256;
+    pack->values.resize(static_cast<size_t>(size / sizeof(float)));
+    std::ifstream in(path, std::ios::binary);
+    if (!in.read(reinterpret_cast<char *>(pack->values.data()), static_cast<std::streamsize>(size))) {
+        throw std::runtime_error("Kokoro voice_pack could not be read: " + *path_value);
+    }
+    const auto * raw = pack.get();
+    voice_packs_.emplace(key, std::move(pack));
+    return raw;
+}
+
 void KokoroTTSSession::prepare(const runtime::SessionPreparationRequest & request) {
     validate_request_options(request.options, request.option_arrays, *contract_);
     const auto voice = voice_with_request_rate(request.voice, request.options);
+    const KokoroVoicePack * voice_pack = voice_pack_for_request(request.options);
     if (const auto seed = runtime::parse_u64_option(request.options, {"seed"})) {
         if (rng_seed_ != *seed) {
             rng_seed_ = *seed;
@@ -539,7 +585,7 @@ void KokoroTTSSession::prepare(const runtime::SessionPreparationRequest & reques
             runtime::SessionPreparationRequest chunk_request = request;
             chunk_request.text = runtime::Transcript{chunk, request.text->language};
             const auto frontend_state =
-                resolve_kokoro_frontend_session_state(chunk_request.text, voice, *assets_);
+                resolve_kokoro_frontend_session_state(chunk_request.text, voice, *assets_, voice_pack);
             if (prepare_phonemes.empty()) {
                 request_size = std::max(
                     request_size,
@@ -572,6 +618,7 @@ runtime::TaskResult KokoroTTSSession::run(const runtime::TaskRequest & request) 
     }
     validate_request_options(request.options, request.option_arrays, *contract_);
     const auto voice = voice_with_request_rate(request.voice, request.options);
+    const KokoroVoicePack * voice_pack = voice_pack_for_request(request.options);
 
     const int64_t text_chunk_size =
         engine::text::parse_text_chunk_size_override(request.options).value_or(kDefaultTextChunkSize);
@@ -611,7 +658,7 @@ runtime::TaskResult KokoroTTSSession::run(const runtime::TaskRequest & request) 
     std::optional<KokoroFrontendSessionState> shared_state;
     std::string shared_key_prefix;
     if (supplied) {
-        shared_state = resolve_kokoro_frontend_session_state(request.text_input, voice, *assets_);
+        shared_state = resolve_kokoro_frontend_session_state(request.text_input, voice, *assets_, voice_pack);
         shared_key_prefix = cache_key_prefix(*shared_state, *request.text_input);
     }
     for (size_t chunk_index = 0; chunk_index < chunk_count; ++chunk_index) {
@@ -621,7 +668,7 @@ runtime::TaskResult KokoroTTSSession::run(const runtime::TaskRequest & request) 
                      : std::optional<std::string_view>{};
         const auto frontend_state = supplied
             ? *shared_state
-            : resolve_kokoro_frontend_session_state(chunk_request.text_input, voice, *assets_);
+            : resolve_kokoro_frontend_session_state(chunk_request.text_input, voice, *assets_, voice_pack);
         const std::string cache_key =
             (supplied ? shared_key_prefix : cache_key_prefix(frontend_state, *chunk_request.text_input)) +
             // Without this, two requests with the same text and different supplied phonemes

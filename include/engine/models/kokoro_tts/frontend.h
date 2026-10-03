@@ -1,3 +1,5 @@
+// Modified in delebash/audio.cpp (JustVoice's copy of audio.cpp), 2026-10-03: the voice_pack
+// request option — a caller's blend as the style pack.
 #pragma once
 
 #include "engine/framework/runtime/session.h"
@@ -27,10 +29,14 @@ struct KokoroFrontendSessionState {
     float speaking_rate = 1.0f;
 };
 
+// `voice_pack_override`, when given, is the style pack in place of the voice's own — a blend
+// the caller made from the package's voices (the `voice_pack` request option). The voice id
+// still decides the language and the G2P, and the pack's id joins it in the cache key.
 KokoroFrontendSessionState resolve_kokoro_frontend_session_state(
     const std::optional<runtime::Transcript> & text,
     const std::optional<runtime::VoiceCondition> & voice,
-    const KokoroAssets & assets);
+    const KokoroAssets & assets,
+    const KokoroVoicePack * voice_pack_override = nullptr);
 
 // `phoneme_override`, when present, is synthesized as-is INSTEAD of running the built-in
 // G2P over `text`. It lets a caller with its own grapheme-to-phoneme stage — a lexicon the

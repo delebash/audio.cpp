@@ -1,3 +1,5 @@
+// Modified in delebash/audio.cpp (JustVoice's copy of audio.cpp), 2026-10-03: the voice_pack
+// request option — a caller's blend as the style pack.
 #include "engine/models/kokoro_tts/frontend.h"
 
 #include "engine/models/kokoro_tts/g2p_multilingual.h"
@@ -231,7 +233,8 @@ float resolve_speaking_rate(const std::optional<runtime::VoiceCondition> & voice
 KokoroFrontendSessionState resolve_kokoro_frontend_session_state(
     const std::optional<runtime::Transcript> & text,
     const std::optional<runtime::VoiceCondition> & voice,
-    const KokoroAssets & assets) {
+    const KokoroAssets & assets,
+    const KokoroVoicePack * voice_pack_override) {
     runtime::Transcript transcript;
     if (text.has_value()) {
         transcript = *text;
@@ -244,6 +247,12 @@ KokoroFrontendSessionState resolve_kokoro_frontend_session_state(
         throw std::runtime_error("unknown Kokoro voice id: " + state.voice_id);
     }
     state.voice_pack = &voice_it->second;
+    if (voice_pack_override != nullptr) {
+        // The voice id keeps the language; the id after '#' keeps two packs on one voice apart
+        // in the synthesis cache key.
+        state.voice_pack = voice_pack_override;
+        state.voice_id += "#" + voice_pack_override->id;
+    }
     state.speaking_rate = resolve_speaking_rate(voice);
     return state;
 }
