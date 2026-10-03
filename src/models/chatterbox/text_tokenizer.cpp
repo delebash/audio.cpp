@@ -1,3 +1,5 @@
+// Modified in delebash/audio.cpp (JustVoice's copy of audio.cpp), 2026-10-03: Hebrew, Russian and
+// Chinese (the Cangjie conversion of upstream's ChineseCangjieConverter).
 #include "engine/models/chatterbox/text_tokenizer.h"
 
 #include "engine/framework/io/json.h"
@@ -28,6 +30,8 @@ struct ChatterboxEnglishTokenizerModel {
     int32_t unk_id = -1;
     int32_t start_id = -1;
     int32_t stop_id = -1;
+    // Chinese: glyph -> its Cangjie tokens, "[cj_<letter>]…[cj_<index digit>]…[cj_.]".
+    std::unordered_map<uint32_t, std::string> cangjie;
 };
 
 namespace {
@@ -211,6 +215,83 @@ std::string trim_spaces(std::string value) {
     return value;
 }
 
+// Upstream converts only characters of Unicode category Lo. On the Cangjie table that is exactly
+// these blocks (checked against Python 3.12's unicodedata, Unicode 15.0, entry by entry): CJK
+// ideographs with their extensions and compatibility forms, Bopomofo, and 〆 and 〼. The table's
+// other 1,133 entries (symbols, numerals, punctuation, unassigned code points) stay as they are.
+bool cangjie_letter(uint32_t cp) {
+    static constexpr std::pair<uint32_t, uint32_t> kRanges[] = {
+        {0x3006, 0x3006}, {0x303C, 0x303C}, {0x3105, 0x312F}, {0x31A0, 0x31BF},
+        {0x3400, 0x4DBF}, {0x4E00, 0x9FFF}, {0xF900, 0xFAFF}, {0x20000, 0x2A6DF},
+        {0x2A700, 0x2B739}, {0x2B740, 0x2B81D}, {0x2B820, 0x2CEA1}, {0x2CEB0, 0x2EBE0},
+        {0x30000, 0x3134A}, {0x31350, 0x323AF}, {0x2F800, 0x2FA1D},
+    };
+    for (const auto & [lo, hi] : kRanges) {
+        if (cp >= lo && cp <= hi) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// upstream ChineseCangjieConverter.__call__ (segmentation aside): each glyph with a code becomes
+// its Cangjie tokens; everything else passes through.
+std::string encode_cangjie(const ChatterboxEnglishTokenizerModel & tokenizer, const std::string & text) {
+    std::string out;
+    out.reserve(text.size() * 4);
+    for (size_t pos = 0; pos < text.size();) {
+        const auto [codepoint, width] = read_utf8_codepoint_at(text, pos);
+        if (const auto it = tokenizer.cangjie.find(codepoint); it != tokenizer.cangjie.end()) {
+            out += it->second;
+        } else {
+            out.append(text, pos, width);
+        }
+        pos += width;
+    }
+    return out;
+}
+
+void load_cangjie_table(ChatterboxEnglishTokenizerModel & tokenizer, const std::filesystem::path & path) {
+    // Copied quirk for quirk from upstream: word -> code keeps the LAST entry for a glyph, and the
+    // index is the glyph's FIRST position in that code's list, written only when above 0.
+    std::unordered_map<uint32_t, std::string> word_to_code;
+    std::unordered_map<std::string, std::vector<uint32_t>> code_to_words;
+    // The document is held here: a range-for over parse_file(path).as_array() would iterate the
+    // array of a temporary already destroyed (no lifetime extension before C++23).
+    const auto document = engine::io::json::parse_file(path);
+    for (const auto & item : document.as_array()) {
+        const auto & entry = item.as_string();
+        const auto tab = entry.find('\t');
+        if (tab == std::string::npos || tab == 0) {
+            continue;
+        }
+        const auto end = entry.find('\t', tab + 1);
+        const std::string code = entry.substr(tab + 1, end == std::string::npos ? std::string::npos : end - tab - 1);
+        const auto [glyph, width] = read_utf8_codepoint_at(entry, 0);
+        if (width != tab) {
+            continue;  // one glyph per entry in upstream's table
+        }
+        word_to_code[glyph] = code;
+        code_to_words[code].push_back(glyph);
+    }
+    for (const auto & [glyph, code] : word_to_code) {
+        if (!cangjie_letter(glyph)) {
+            continue;
+        }
+        const auto & words = code_to_words.at(code);
+        const auto index = static_cast<size_t>(std::find(words.begin(), words.end(), glyph) - words.begin());
+        const std::string full = index > 0 ? code + std::to_string(index) : code;
+        std::string tokens;
+        for (const char c : full) {
+            tokens += "[cj_";
+            tokens.push_back(c);
+            tokens += "]";
+        }
+        tokens += "[cj_.]";
+        tokenizer.cangjie.emplace(glyph, std::move(tokens));
+    }
+}
+
 std::string decompose_korean_hangul(std::string_view text) {
     std::string out;
     out.reserve(text.size());
@@ -333,6 +414,17 @@ std::shared_ptr<const ChatterboxEnglishTokenizerModel> load_chatterbox_english_t
     return tokenizer;
 }
 
+std::shared_ptr<const ChatterboxEnglishTokenizerModel> load_chatterbox_english_tokenizer(
+    const std::filesystem::path & tokenizer_path,
+    const std::optional<std::filesystem::path> & cangjie_mapping_path) {
+    auto tokenizer = std::const_pointer_cast<ChatterboxEnglishTokenizerModel>(
+        load_chatterbox_english_tokenizer(tokenizer_path));
+    if (cangjie_mapping_path.has_value()) {
+        load_cangjie_table(*tokenizer, *cangjie_mapping_path);
+    }
+    return tokenizer;
+}
+
 std::string normalize_chatterbox_tts_text(const std::string & text) {
     if (text.empty()) {
         return "You need to add some text for me to talk.";
@@ -397,9 +489,11 @@ std::string normalize_chatterbox_tts_text(const std::string & text) {
 }
 
 std::vector<std::string> supported_chatterbox_language_codes() {
+    // he and ru as upstream speaks them in practice: its Hebrew diacritizer (dicta-onnx) fails to
+    // construct and its Russian stresser is not a dependency, so both pass the text through.
     return {
-        "ar", "da", "de", "el", "en", "es", "fi", "fr", "hi", "it",
-        "ko", "ms", "nl", "no", "pl", "pt", "sv", "sw", "tr",
+        "ar", "da", "de", "el", "en", "es", "fi", "fr", "he", "hi", "it",
+        "ko", "ms", "nl", "no", "pl", "pt", "ru", "sv", "sw", "tr", "zh",
     };
 }
 
@@ -435,6 +529,12 @@ std::vector<int32_t> encode_chatterbox_multilingual_text(
     std::string prepared = lower_and_normalize_nfkd(text);
     if (normalized_language == "ko") {
         prepared = decompose_korean_hangul(prepared);
+    } else if (normalized_language == "zh") {
+        if (tokenizer.cangjie.empty()) {
+            throw std::runtime_error(
+                "Chatterbox Chinese needs the Cangjie table (cangjie_mapping), which this package does not carry");
+        }
+        prepared = encode_cangjie(tokenizer, prepared);
     }
     return encode_marked_text(tokenizer, "[" + normalized_language + "]" + replace_spaces_with_marker(prepared));
 }
