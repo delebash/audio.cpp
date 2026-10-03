@@ -3,11 +3,17 @@
 #include "engine/models/chatterbox/text_tokenizer.h"
 
 #include "engine/framework/io/json.h"
+#include "engine/framework/text/jieba_segmenter.h"
+#include "engine/framework/text/mecab.h"
 #include "engine/framework/text/unicode_normalization.h"
 #include "unicode.h"
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
+#include <cstdlib>
+#include <memory>
+#include <mutex>
 #include <limits>
 #include <stdexcept>
 #include <string_view>
@@ -292,6 +298,100 @@ void load_cangjie_table(ChatterboxEnglishTokenizerModel & tokenizer, const std::
     }
 }
 
+// upstream's ChineseCangjieConverter splits the text into words (spacy-pkuseg) and joins them with
+// spaces before the Cangjie step. Here jieba does it (decided 2026-10-03), over cppjieba's MIT
+// dictionary shipped beside the runtime in a jieba/ folder (or AUDIOCPP_JIEBA_DIR). Without it the
+// words are not split — upstream's own behaviour when pkuseg is missing.
+const engine::text::JiebaSegmenter * chinese_segmenter() {
+    static std::once_flag once;
+    static std::unique_ptr<engine::text::JiebaSegmenter> segmenter;
+    std::call_once(once, [] {
+        std::filesystem::path dir;
+        if (const char * env = std::getenv("AUDIOCPP_JIEBA_DIR"); env && *env) {
+            dir = std::filesystem::u8path(env);
+        } else {
+            dir = engine::text::executable_directory() / "jieba";
+        }
+        std::error_code ec;
+        if (std::filesystem::is_regular_file(dir / "jieba.dict.utf8", ec) &&
+            std::filesystem::is_regular_file(dir / "hmm_model.utf8", ec)) {
+            segmenter = std::make_unique<engine::text::JiebaSegmenter>(dir / "jieba.dict.utf8", dir / "hmm_model.utf8");
+        } else {
+            std::fprintf(stderr, "Chatterbox Chinese: no jieba dictionary in %s, so words are not split\n",
+                dir.u8string().c_str());
+        }
+    });
+    return segmenter.get();
+}
+
+// MeCab over UniDic (AUDIOCPP_UNIDIC_DIR — the optional Japanese dictionary), made on first use and
+// kept; a missing dictionary is not remembered, so installing it later works without a restart.
+const engine::text::MecabTagger & japanese_tagger() {
+    static std::mutex mutex;
+    static std::unique_ptr<engine::text::MecabTagger> tagger;
+    std::lock_guard<std::mutex> lock(mutex);
+    if (!tagger) {
+        const auto dir = engine::text::unidic_dictionary_dir();
+        if (!dir) {
+            throw std::runtime_error(
+                "Chatterbox Japanese needs the Japanese dictionary (UniDic): set AUDIOCPP_UNIDIC_DIR to its folder");
+        }
+        tagger = std::make_unique<engine::text::MecabTagger>(*dir);
+    }
+    return *tagger;
+}
+
+std::string katakana_to_hiragana(const std::string & text) {
+    std::string out;
+    out.reserve(text.size());
+    for (size_t pos = 0; pos < text.size();) {
+        auto [codepoint, width] = read_utf8_codepoint_at(text, pos);
+        if (codepoint >= 0x30A1U && codepoint <= 0x30F6U) {
+            codepoint -= 0x60U;
+        }
+        append_utf8_codepoint(out, codepoint);
+        pos += width;
+    }
+    return out;
+}
+
+// upstream hiragana_normalize: every phrase with a kanji (U+4E00-U+9FFF, its is_kanji) becomes its
+// hiragana reading, with a space before a reading that starts with U+306F or U+3078; katakana and
+// everything else stay. Phrases are pykakasi's there and MeCab's tokens here, and the reading is
+// UniDic's kana (field 17), so readings are close to upstream's, not identical.
+std::string japanese_to_hiragana(const std::string & text) {
+    const auto tokens = japanese_tagger().parse(text);
+    std::string out;
+    out.reserve(text.size() * 2);
+    size_t pos = 0;
+    for (const auto & token : tokens) {
+        if (token.begin > pos) {
+            out.append(text, pos, token.begin - pos);  // spaces MeCab skips
+        }
+        bool has_kanji = false;
+        for (size_t at = 0; at < token.surface.size();) {
+            const auto [codepoint, width] = read_utf8_codepoint_at(token.surface, at);
+            has_kanji = has_kanji || (codepoint >= 0x4E00U && codepoint <= 0x9FFFU);
+            at += width;
+        }
+        const std::string reading = has_kanji && token.features.size() > 17 ? token.features[17] : std::string{};
+        if (has_kanji && !reading.empty() && reading != "*") {
+            const std::string hiragana = katakana_to_hiragana(reading);
+            if (hiragana.rfind("\xE3\x81\xAF", 0) == 0 || hiragana.rfind("\xE3\x81\xB8", 0) == 0) {
+                out.push_back(' ');
+            }
+            out += hiragana;
+        } else {
+            out += token.surface;
+        }
+        pos = std::max(pos, token.end);
+    }
+    if (pos < text.size()) {
+        out.append(text, pos, std::string::npos);
+    }
+    return out;
+}
+
 std::string decompose_korean_hangul(std::string_view text) {
     std::string out;
     out.reserve(text.size());
@@ -493,7 +593,7 @@ std::vector<std::string> supported_chatterbox_language_codes() {
     // construct and its Russian stresser is not a dependency, so both pass the text through.
     return {
         "ar", "da", "de", "el", "en", "es", "fi", "fr", "he", "hi", "it",
-        "ko", "ms", "nl", "no", "pl", "pt", "ru", "sv", "sw", "tr", "zh",
+        "ja", "ko", "ms", "nl", "no", "pl", "pt", "ru", "sv", "sw", "tr", "zh",
     };
 }
 
@@ -526,13 +626,26 @@ std::vector<int32_t> encode_chatterbox_multilingual_text(
     const std::string & language) {
     const auto & tokenizer = tokenizer_base;
     const std::string normalized_language = normalize_chatterbox_language_code(language);
-    std::string prepared = lower_and_normalize_nfkd(text);
+    // Japanese: MeCab reads the text before NFKD splits its kana; upstream normalises again after.
+    std::string prepared = normalized_language == "ja"
+        ? lower_and_normalize_nfkd(japanese_to_hiragana(text))
+        : lower_and_normalize_nfkd(text);
     if (normalized_language == "ko") {
         prepared = decompose_korean_hangul(prepared);
     } else if (normalized_language == "zh") {
         if (tokenizer.cangjie.empty()) {
             throw std::runtime_error(
                 "Chatterbox Chinese needs the Cangjie table (cangjie_mapping), which this package does not carry");
+        }
+        if (const auto * segmenter = chinese_segmenter()) {
+            std::string joined;
+            for (const auto & word : segmenter->cut(prepared)) {
+                if (!joined.empty()) {
+                    joined.push_back(' ');
+                }
+                joined += word;
+            }
+            prepared = std::move(joined);
         }
         prepared = encode_cangjie(tokenizer, prepared);
     }

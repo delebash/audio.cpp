@@ -465,6 +465,8 @@ add_library(engine_core OBJECT
     src/framework/text/chinese_normalization.cpp
     src/framework/text/chinese_variant.cpp
     src/framework/text/chunking.cpp
+    src/framework/text/jieba_segmenter.cpp
+    src/framework/text/mecab.cpp
     src/framework/text/subtitle.cpp
     src/framework/text/moss_tts_normalization.cpp
     src/framework/text/text_normalization.cpp
@@ -925,7 +927,6 @@ audiocpp_add_model(zipvoice
         src/community_models/zipvoice/session.cpp
         src/community_models/zipvoice/synthesize.cpp
         src/community_models/zipvoice/emilia_tokenizer.cpp
-        src/community_models/zipvoice/jieba_segmenter.cpp
         src/community_models/zipvoice/weights.cpp
         src/community_models/zipvoice/zipformer.cpp
     INCLUDES

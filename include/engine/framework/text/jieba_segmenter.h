@@ -1,8 +1,11 @@
+// Modified in delebash/audio.cpp (JustVoice's copy of audio.cpp), 2026-10-03: moved from
+// src/community_models/zipvoice/ into the shared text framework (namespace engine::text), so
+// Chatterbox's Chinese splits words with it too. The segmentation itself is unchanged.
 #pragma once
 
 // SPDX-License-Identifier: MIT
 //
-// Minimal Jieba word segmentation for the ZipVoice Chinese frontend.
+// Minimal Jieba word segmentation, shared by ZipVoice's Chinese frontend and Chatterbox's Chinese.
 //
 // This is a focused port of the parts of cppjieba (Copyright (c) 2013 Yanyi
 // Wu, MIT) and jieba (Copyright (c) 2012 Sun Junyi, MIT) that the frontend
@@ -20,7 +23,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace engine::models::zipvoice {
+namespace engine::text {
 
 // Word segmentation equivalent to cppjieba::MixSegment (HMM enabled), which in
 // turn matches python jieba.cut for the same dictionaries.
@@ -64,4 +67,4 @@ private:
     std::unordered_map<uint32_t, double> emit_prob_[4];
 };
 
-}  // namespace engine::models::zipvoice
+}  // namespace engine::text

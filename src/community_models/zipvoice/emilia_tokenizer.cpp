@@ -1,6 +1,8 @@
+// Modified in delebash/audio.cpp (JustVoice's copy of audio.cpp), 2026-10-03: the jieba segmenter
+// moved to the shared text framework (engine::text).
 #include "engine/community_models/zipvoice/emilia_tokenizer.h"
 
-#include "jieba_segmenter.h"
+#include "engine/framework/text/jieba_segmenter.h"
 
 #include "engine/framework/text/espeak_phonemizer.h"
 #include "engine/framework/text/chinese_normalization.h"
@@ -305,7 +307,7 @@ std::vector<int32_t> EmiliaTokenizer::encode(const std::string & raw_text) const
                         "and zh_hmm_model.txt in the package or next to it); run "
                         "tools/community_models/export_zipvoice_zh_dict.py");
                 }
-                segmenter_ = std::make_unique<JiebaSegmenter>(
+                segmenter_ = std::make_unique<engine::text::JiebaSegmenter>(
                     tables_.jieba_dict, tables_.hmm_model);
             }
             words = segmenter_->cut(normalized);

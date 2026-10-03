@@ -1,5 +1,8 @@
+// Modified in delebash/audio.cpp (JustVoice's copy of audio.cpp), 2026-10-03: Japanese reads the
+// UniDic dictionary from AUDIOCPP_UNIDIC_DIR when the package has none.
 #include "engine/models/kokoro_tts/g2p_multilingual.h"
 #include "engine/framework/text/espeak_phonemizer.h"
+#include "engine/framework/text/mecab.h"
 #include "engine/framework/io/json.h"
 #include <algorithm>
 #include <array>
@@ -254,6 +257,7 @@ std::string normalize_numbers(const std::string & text, bool ja) {
 struct MultilingualG2P::Impl {
     std::filesystem::path root;
     mutable std::once_flag ja_once, zh_once;
+    mutable std::filesystem::path unidic_dir;
     mutable std::unordered_map<U, U> kana;
     mutable std::set<std::string> ja_words;
     mutable Value zh;
@@ -266,12 +270,13 @@ struct MultilingualG2P::Impl {
                     "Kokoro Japanese G2P resources are not bundled in this GGUF; "
                     "re-export the model with --embed-multilingual-resources to use Japanese voices");
             }
-            const auto unidic_path = root / "unidic";
-            if (!std::filesystem::is_regular_file(unidic_path / "dicrc")) {
+            const auto unidic = engine::text::unidic_dictionary_dir(root / "unidic");
+            if (!unidic) {
                 throw std::runtime_error(
-                    "Kokoro UniDic resources are not bundled in this GGUF; "
-                    "re-export the model with --embed-multilingual-resources to use Japanese voices");
+                    "Kokoro Japanese needs the Japanese dictionary (UniDic): set AUDIOCPP_UNIDIC_DIR to its "
+                    "folder, or re-export the model with --embed-multilingual-resources");
             }
+            unidic_dir = *unidic;
             auto value = engine::io::json::parse_file(g2p_path);
             for (const auto & [k, v] : value.require("kana").as_object()) kana.emplace(decode(k), decode(v.as_string()));
             for (const auto & v : value.require("words").as_array()) ja_words.insert(v.as_string());
@@ -293,8 +298,8 @@ struct MultilingualG2P::Impl {
         };
         auto parse = lib.symbol<const Node * (*)(void *, const char *)>("mecab_sparse_tonode");
         auto error = lib.symbol<const char * (*)(void *)>("mecab_strerror");
-        std::vector<std::string> args = {"mecab", "-r", (root / "unidic/dicrc").u8string(),
-            "-d", (root / "unidic").u8string()};
+        std::vector<std::string> args = {"mecab", "-r", (unidic_dir / "dicrc").u8string(),
+            "-d", unidic_dir.u8string()};
         std::vector<char *> argv; for (auto & arg : args) argv.push_back(arg.data());
         void * tagger = create(static_cast<int>(argv.size()), argv.data());
         if (!tagger) throw std::runtime_error(std::string("Cannot load Japanese dictionary: ") + error(nullptr));

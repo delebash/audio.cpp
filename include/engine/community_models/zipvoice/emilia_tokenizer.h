@@ -1,3 +1,5 @@
+// Modified in delebash/audio.cpp (JustVoice's copy of audio.cpp), 2026-10-03: the jieba segmenter
+// moved to the shared text framework (engine::text).
 #pragma once
 
 // Chinese/English mixed text frontend for ZipVoice, mirroring the upstream
@@ -20,9 +22,11 @@ namespace engine::audio {
 class EspeakPhonemizer;
 }
 
-namespace engine::models::zipvoice {
-
+namespace engine::text {
 class JiebaSegmenter;
+}
+
+namespace engine::models::zipvoice {
 
 class EmiliaTokenizer {
 public:
@@ -73,7 +77,7 @@ private:
     // jieba.cut with HMM): word boundaries define reading lookup and the
     // scope of tone-sandhi application, mirroring the reference pipeline
     // lazy_pinyin(jieba.cut(text), tone_sandhi=True).
-    mutable std::unique_ptr<JiebaSegmenter> segmenter_;
+    mutable std::unique_ptr<engine::text::JiebaSegmenter> segmenter_;
     mutable std::mutex segmenter_mutex_;
 };
 

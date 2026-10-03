@@ -1,3 +1,6 @@
+// Modified in delebash/audio.cpp (JustVoice's copy of audio.cpp), 2026-10-03: moved from
+// src/community_models/zipvoice/ into the shared text framework (namespace engine::text), so
+// Chatterbox's Chinese splits words with it too. The segmentation itself is unchanged.
 // SPDX-License-Identifier: MIT
 //
 // Focused port of cppjieba's MixSegment for ZipVoice. Derived from:
@@ -30,7 +33,7 @@
 // single characters. The dictionary files are model resources embedded in the
 // GGUF, not a vendored library.
 
-#include "jieba_segmenter.h"
+#include "engine/framework/text/jieba_segmenter.h"
 
 #include <algorithm>
 #include <cctype>
@@ -41,7 +44,7 @@
 #include <sstream>
 #include <stdexcept>
 
-namespace engine::models::zipvoice {
+namespace engine::text {
 namespace {
 
 // cppjieba Utils.hpp MIN_DOUBLE, used as the "impossible" log-probability.
@@ -387,4 +390,4 @@ std::vector<std::string> JiebaSegmenter::cut(const std::string & text) const {
     return words;
 }
 
-}  // namespace engine::models::zipvoice
+}  // namespace engine::text
