@@ -2142,6 +2142,19 @@ engine::runtime::TaskRequest ServerState::build_speech_request(const LoadedModel
     if (const auto * value = body.find("reference_text")) {
         request.options["reference_text"] = value->as_string();
     }
+    // VoxCPM2 uses a transcript only together with prompt audio (its transcript-guided
+    // cloning; src/models/voxcpm2/session.cpp reads the prompt from audio_input). The
+    // server set prompt audio for transcription only, so a speech request's transcript
+    // was accepted and ignored. When a VoxCPM2 request carries a reference clip and its
+    // transcript, the clip is also the prompt audio — as VoxCPM2's own README passes the
+    // same clip to both.
+    if (model.config.family == "voxcpm2" && voice.speaker.has_value() &&
+        voice.speaker->audio.has_value() && !request.audio_input.has_value()) {
+        const auto ref_text = request.options.find("reference_text");
+        if (ref_text != request.options.end() && !ref_text->second.empty()) {
+            request.audio_input = *voice.speaker->audio;
+        }
+    }
     const auto * speed = body.find("speed");
     if (speed == nullptr) {
         speed = body.find("speaking_rate");
