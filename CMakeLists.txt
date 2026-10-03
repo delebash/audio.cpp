@@ -2659,6 +2659,10 @@ if (ENGINE_ENABLE_OPENMP)
     target_link_libraries(audiocpp_server PRIVATE OpenMP::OpenMP_CXX)
 endif()
 
+# jieba's dictionaries and (Windows) libmecab beside audiocpp_server and audiocpp_cli.
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/text_dictionaries.cmake")
+audiocpp_stage_text_dictionaries()
+
 add_executable(audiocpp_gguf
     app/gguf/main.cpp
 )
