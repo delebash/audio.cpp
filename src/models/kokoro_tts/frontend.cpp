@@ -1,5 +1,6 @@
 // Modified in delebash/audio.cpp (JustVoice's copy of audio.cpp), 2026-10-03: the voice_pack
-// request option — a caller's blend as the style pack.
+// request option — a caller's blend as the style pack; inline "[word](/phonemes/)"
+// pronunciations.
 #include "engine/models/kokoro_tts/frontend.h"
 
 #include "engine/models/kokoro_tts/g2p_multilingual.h"
@@ -103,6 +104,75 @@ std::string resolve_language_code(
     return language_code;
 }
 
+// Inline pronunciations — "[word](/phonemes/)", the markup hexgrad/Kokoro's misaki reads. The
+// word is spoken from the phonemes given, which must be Kokoro's own symbols (checked, so a
+// wrong symbol is named instead of silently dropped); the text around it goes through the G2P
+// as before. A lexicon's pronunciation of one name reaches the audio without the caller taking
+// over the phonemization of the whole line.
+struct InlinePiece {
+    std::string text;      // plain text, or the supplied phonemes
+    std::string word;      // the word a supplied pronunciation stands for
+    bool supplied = false;
+};
+
+std::vector<InlinePiece> split_inline_pronunciations(const std::string & text) {
+    std::vector<InlinePiece> out;
+    size_t start = 0;
+    size_t pos = 0;
+    while ((pos = text.find('[', pos)) != std::string::npos) {
+        const size_t close = text.find("](/", pos);
+        if (close == std::string::npos) {
+            break;
+        }
+        const size_t next_open = text.find('[', pos + 1);
+        if (next_open != std::string::npos && next_open < close) {
+            pos = next_open;   // "[a [b](/x/)" — the inner bracket starts the markup
+            continue;
+        }
+        const size_t end = text.find("/)", close + 3);
+        if (end == std::string::npos) {
+            break;
+        }
+        if (pos > start) {
+            out.push_back({text.substr(start, pos - start), {}, false});
+        }
+        out.push_back({text.substr(close + 3, end - (close + 3)), text.substr(pos + 1, close - pos - 1), true});
+        pos = start = end + 2;
+    }
+    if (start < text.size()) {
+        out.push_back({text.substr(start), {}, false});
+    }
+    return out;
+}
+
+void require_kokoro_symbols(const std::string & phonemes, const std::string & word, const KokoroAssets & assets) {
+    for (size_t i = 0; i < phonemes.size();) {
+        const unsigned char lead = static_cast<unsigned char>(phonemes[i]);
+        const size_t width = (lead & 0x80u) == 0 ? 1
+            : (lead & 0xE0u) == 0xC0u ? 2
+            : (lead & 0xF0u) == 0xE0u ? 3
+            : (lead & 0xF8u) == 0xF0u ? 4 : 0;
+        if (width == 0 || i + width > phonemes.size()) {
+            throw std::runtime_error("invalid UTF-8 in the pronunciation of \"" + word + "\"");
+        }
+        const std::string symbol = phonemes.substr(i, width);
+        if (assets.vocab.find(symbol) == assets.vocab.end()) {
+            throw std::runtime_error(
+                "the pronunciation of \"" + word + "\" uses " + symbol +
+                ", which is not one of Kokoro's phoneme symbols (they are not canonical IPA)");
+        }
+        i += width;
+    }
+}
+
+std::string trim_spaces(const std::string & s) {
+    const size_t a = s.find_first_not_of(" \t\r\n");
+    if (a == std::string::npos) {
+        return {};
+    }
+    return s.substr(a, s.find_last_not_of(" \t\r\n") - a + 1);
+}
+
 std::string phonemize_text(
     const runtime::Transcript & text,
     const std::string & language_code,
@@ -111,7 +181,31 @@ std::string phonemize_text(
         throw std::runtime_error("Kokoro TTS requires non-empty text");
     }
     if (!assets.multilingual_g2p) throw std::runtime_error("Kokoro multilingual resources were not prepared");
-    return assets.multilingual_g2p->phonemize(text.text, language_code);
+    const auto pieces = split_inline_pronunciations(text.text);
+    if (pieces.size() == 1 && !pieces.front().supplied) {
+        return assets.multilingual_g2p->phonemize(text.text, language_code);
+    }
+    std::string out;
+    for (const auto & piece : pieces) {
+        std::string phonemes;
+        if (piece.supplied) {
+            phonemes = trim_spaces(piece.text);
+            require_kokoro_symbols(phonemes, piece.word, assets);
+        } else if (!trim_spaces(piece.text).empty()) {
+            phonemes = trim_spaces(assets.multilingual_g2p->phonemize(piece.text, language_code));
+        }
+        if (phonemes.empty()) {
+            continue;
+        }
+        if (!out.empty()) {
+            out += ' ';
+        }
+        out += phonemes;
+    }
+    if (out.empty()) {
+        throw std::runtime_error("Kokoro TTS text has nothing to speak");
+    }
+    return out;
 }
 
 struct EncodedInputIds {
