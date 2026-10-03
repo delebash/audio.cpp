@@ -1,3 +1,5 @@
+// Modified in delebash/audio.cpp (JustVoice's copy of audio.cpp), 2026-10-03: a VoxCPM2 speech
+// request's reference clip doubles as prompt audio when a transcript comes with it.
 #include "runtime.h"
 
 #include "base64.h"

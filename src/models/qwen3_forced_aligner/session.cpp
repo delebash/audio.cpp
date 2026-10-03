@@ -1,3 +1,5 @@
+// Modified in delebash/audio.cpp (JustVoice's copy of audio.cpp), 2026-10-03: word spans at
+// the input audio's sample rate.
 #include "engine/models/qwen3_forced_aligner/session.h"
 
 #include "engine/framework/audio/chunking.h"

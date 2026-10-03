@@ -1,3 +1,5 @@
+// Modified in delebash/audio.cpp (JustVoice's copy of audio.cpp), 2026-10-03: the forced
+// aligner's word spans are merged as source-rate spans.
 #include "engine/models/qwen3_asr/session.h"
 
 #include "engine/framework/audio/chunking.h"
