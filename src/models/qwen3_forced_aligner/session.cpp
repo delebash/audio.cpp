@@ -236,10 +236,13 @@ runtime::TaskResult Qwen3ForcedAlignerSession::run_single(const runtime::TaskReq
         timestamp_ids.push_back(id);
     }
     const auto postprocess_start = Clock::now();
+    // Word spans are sample positions of the INPUT audio: the server divides them by the
+    // input rate, and `audio_frames` (the clamp below) counts input frames. They were built
+    // at the model's 16 kHz, so 24 kHz input came back with times 2/3 of real.
     auto timestamps = processor_.parse_timestamps(
         align_prompt.words,
         timestamp_ids,
-        assets_->config.sample_rate,
+        request.audio_input->sample_rate,
         audio_frames,
         request_clamp_timestamps_to_audio(request));
     const auto postprocess_end = Clock::now();
