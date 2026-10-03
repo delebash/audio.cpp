@@ -532,7 +532,9 @@ const KokoroVoicePack * KokoroTTSSession::voice_pack_for_request(
     if (ec) {
         throw std::runtime_error("Kokoro voice_pack file not found: " + *path_value);
     }
-    const auto modified = std::filesystem::last_write_time(path, ec).time_since_epoch().count();
+    // The clock's count is 128-bit on macOS (libc++), which std::to_string has no overload for.
+    const auto modified = static_cast<long long>(
+        std::filesystem::last_write_time(path, ec).time_since_epoch().count());
     const std::string key = *path_value + ":" + std::to_string(size) + ":" + std::to_string(modified);
     if (const auto it = voice_packs_.find(key); it != voice_packs_.end()) {
         return it->second.get();
