@@ -70,6 +70,12 @@ struct ServerConfig {
     std::string cors_origins = "";
     bool ui_enabled = true;
     bool ui_management = false;
+    // Register, load and unload models at run time (POST /v1/models/load and
+    // /v1/models/unload) WITHOUT the WebUI's installer, models-root, upload and
+    // directory-browsing endpoints that ui_management also opens. A host that owns
+    // its own model files starts with this and an empty models array, so a model it
+    // downloads later is added without restarting the process.
+    bool model_management = false;
     engine::core::BackendType backend = engine::core::BackendType::Cuda;
     int device = 0;
     int threads = 1;

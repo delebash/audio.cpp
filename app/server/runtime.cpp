@@ -1172,6 +1172,7 @@ HttpResponse ServerState::handle_request(const HttpRequest & request, bool use_f
             std::to_string(model_count) +
             ",\"ui\":" + (config_.ui_enabled ? "true" : "false") +
             ",\"ui_management\":" + (config_.ui_management ? "true" : "false") +
+            ",\"model_management\":" + (config_.model_management ? "true" : "false") +
             "}");
     }
     else if (request.method == "GET" && request.path == "/v1/models") {
@@ -1361,7 +1362,7 @@ void ServerState::refresh_model_option_flags(LoadedModel & model) {
 }
 
 HttpResponse ServerState::handle_model_load(const std::string & body_text) {
-    if (!config_.ui_management) {
+    if (!config_.ui_management && !config_.model_management) {
         return error_response(403, "dynamic model management is disabled", "forbidden");
     }
     const auto body = engine::io::json::parse(body_text);
@@ -1435,7 +1436,7 @@ std::filesystem::path ServerState::resolve_ui_model_path(const std::filesystem::
 }
 
 HttpResponse ServerState::handle_model_unload(const std::string & body_text) {
-    if (!config_.ui_management) {
+    if (!config_.ui_management && !config_.model_management) {
         return error_response(403, "dynamic model management is disabled", "forbidden");
     }
     const auto body = engine::io::json::parse(body_text);

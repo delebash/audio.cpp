@@ -225,6 +225,7 @@ ServerConfig load_server_config(const std::filesystem::path & path) {
     config.cors_origins = engine::io::json::optional_string(root, "cors_origins", config.cors_origins);
     config.ui_enabled = engine::io::json::optional_bool(root, "ui", config.ui_enabled);
     config.ui_management = engine::io::json::optional_bool(root, "ui_management", config.ui_management);
+    config.model_management = engine::io::json::optional_bool(root, "model_management", config.model_management);
     config.backend = parse_server_backend(engine::io::json::optional_string(root, "backend", "cuda"));
     config.device = engine::io::json::optional_i32(root, "device", config.device);
     config.threads = engine::io::json::optional_i32(root, "threads", config.threads);
@@ -287,8 +288,9 @@ ServerConfig load_server_config(const std::filesystem::path & path) {
     if (models == nullptr || !models->is_array()) {
         throw std::runtime_error("server config requires a models array");
     }
-    if (models->as_array().empty() && !config.ui_management) {
-        throw std::runtime_error("server config requires a non-empty models array unless ui_management is enabled");
+    if (models->as_array().empty() && !config.ui_management && !config.model_management) {
+        throw std::runtime_error(
+            "server config requires a non-empty models array unless ui_management or model_management is enabled");
     }
     for (const auto & item : models->as_array()) {
         ServerModelConfig model;

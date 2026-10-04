@@ -428,6 +428,22 @@ void test_empty_models_require_ui_management() {
     require(rejected, "an empty static server config requires ui_management");
 }
 
+void test_model_management_alone() {
+    const auto root = make_temp_root();
+    const auto config_path = write_config(
+        root,
+        "model_management.json",
+        R"JSON({
+  "model_management": true,
+  "models": []
+})JSON");
+
+    const auto config = minitts::server::load_server_config(config_path);
+    require(config.model_management, "model_management=true enables run-time model registration");
+    require(!config.ui_management, "model_management does not open the WebUI's management endpoints");
+    require(config.models.empty(), "a model_management host may start without configured models");
+}
+
 // A request may shorten its own wait but must never lengthen it past server policy,
 // otherwise a client could reintroduce the unbounded hang the guard prevents.
 void test_request_timeout_is_clamped_to_policy() {
@@ -650,6 +666,7 @@ int main() {
         test_negative_per_model_busy_timeout_is_rejected();
         test_ui_configuration();
         test_empty_models_require_ui_management();
+        test_model_management_alone();
         test_request_timeout_is_clamped_to_policy();
         test_model_run_overrun_predicate();
         test_model_memory_estimator();
