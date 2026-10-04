@@ -1,6 +1,7 @@
 // Added in delebash/audio.cpp (JustVoice's copy of audio.cpp), 2026-10-03: MeCab over a UniDic
 // dictionary, shared by Kokoro's and Chatterbox's Japanese. The library loading and the node ABI
-// prefix follow src/models/kokoro_tts/g2p_multilingual.cpp.
+// prefix follow src/models/kokoro_tts/g2p_multilingual.cpp. 2026-10-04: macOS and Linux load the
+// libmecab beside the executable first, as Windows does, then the system's.
 #include "engine/framework/text/mecab.h"
 
 #include <cstdint>
@@ -51,7 +52,23 @@ public:
         }
         handle_ = LoadLibraryExW(path.c_str(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
 #else
-        handle_ = dlopen(override_path && *override_path ? override_path : "libmecab.so.2", RTLD_NOW | RTLD_LOCAL);
+        if (override_path && *override_path) {
+            handle_ = dlopen(override_path, RTLD_NOW | RTLD_LOCAL);
+        } else {
+            // The release stages libmecab beside the executable on every platform
+            // (cmake/text_dictionaries.cmake); a bare name only searches the system paths.
+#if defined(__APPLE__)
+            const char * name = "libmecab.2.dylib";
+#else
+            const char * name = "libmecab.so.2";
+#endif
+            std::error_code ec;
+            const auto beside = executable_directory() / name;
+            if (std::filesystem::is_regular_file(beside, ec)) {
+                handle_ = dlopen(beside.c_str(), RTLD_NOW | RTLD_LOCAL);
+            }
+            if (!handle_) handle_ = dlopen(name, RTLD_NOW | RTLD_LOCAL);
+        }
 #endif
         if (!handle_) {
             throw std::runtime_error("Japanese needs libmecab beside the audio.cpp executable (or set AUDIOCPP_MECAB_LIBRARY)");
