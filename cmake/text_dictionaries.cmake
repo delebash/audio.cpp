@@ -94,9 +94,10 @@ function(audiocpp_stage_text_dictionaries)
         set(mecab "${AUDIOCPP_TEXT_DICT_DIR}/mecab")
         if (NOT EXISTS "${mecab}/${lib_name}")
             file(REMOVE_RECURSE "${mecab}/unpacked")
+            # Only this wheel's own library folder: a pattern that matches nothing fails the extract.
+            get_filename_component(lib_dir "${lib_glob}" DIRECTORY)
             file(ARCHIVE_EXTRACT INPUT "${wheel}" DESTINATION "${mecab}/unpacked"
-                PATTERNS "fugashi.libs/*" "fugashi/.dylibs/*"
-                         "fugashi-1.5.2.dist-info/licenses/LICENSE.mecab")
+                PATTERNS "${lib_dir}/*" "fugashi-1.5.2.dist-info/licenses/LICENSE.mecab")
             file(GLOB lib "${mecab}/unpacked/${lib_glob}")
             list(LENGTH lib found)
             if (NOT found EQUAL 1)
