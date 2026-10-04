@@ -16,6 +16,7 @@
 
 #include "engine/framework/core/constant_tensor_cache.h"
 
+#include <ggml-alloc.h>
 #include <ggml-backend.h>
 #include <ggml.h>
 
@@ -960,8 +961,32 @@ public:
         ggml_build_forward_expand(graph_, logits_output_);
         constants.finish_graph();
         constants.ensure_uploaded();
-        buffer_ = ggml_backend_alloc_ctx_tensors(ctx_.get(), weights_->backend());
-        if (buffer_ == nullptr) {
+        // Prefill intermediates are needed only until their last consumer: let the graph
+        // allocator reuse their storage instead of reserving every tensor of all 28 layers at
+        // once (the Higgs prefill change, docs/reports/higgs_cuda_prefill_memory.md). What is
+        // uploaded before compute and read after it must survive: the inputs, the logits and
+        // last hidden state, and every layer's K/V — marked as outputs together with whatever
+        // they are views of, which the allocator would otherwise free once unused.
+        ggml_set_input(input_);
+        ggml_set_input(positions_);
+        if (attention_mask_ != nullptr) {
+            ggml_set_input(attention_mask_);
+        }
+        const auto keep = [](ggml_tensor * tensor) {
+            for (; tensor != nullptr; tensor = tensor->view_src) {
+                ggml_set_output(tensor);
+            }
+        };
+        keep(hidden_output_);
+        keep(logits_output_);
+        for (auto * key : keys_) {
+            keep(key);
+        }
+        for (auto * value : values_) {
+            keep(value);
+        }
+        allocator_ = ggml_gallocr_new(ggml_backend_get_default_buffer_type(weights_->backend()));
+        if (allocator_ == nullptr || !ggml_gallocr_alloc_graph(allocator_, graph_)) {
             throw std::runtime_error("failed to allocate Qwen3 talker prefill graph");
         }
         std::vector<int32_t> positions(static_cast<size_t>(prompt_capacity_), 0);
@@ -977,8 +1002,8 @@ public:
 
     ~TalkerPrefillGraph() {
         engine::core::release_backend_graph_resources(weights_->backend(), graph_);
-        if (buffer_ != nullptr) {
-            ggml_backend_buffer_free(buffer_);
+        if (allocator_ != nullptr) {
+            ggml_gallocr_free(allocator_);
         }
     }
 
@@ -1038,7 +1063,7 @@ private:
     std::vector<ggml_tensor *> keys_;
     std::vector<ggml_tensor *> values_;
     ggml_cgraph * graph_ = nullptr;
-    ggml_backend_buffer_t buffer_ = nullptr;
+    ggml_gallocr_t allocator_ = nullptr;
 };
 
 class TalkerCachedStepGraph {
