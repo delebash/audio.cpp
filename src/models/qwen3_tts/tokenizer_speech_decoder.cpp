@@ -1280,8 +1280,15 @@ runtime::AudioBuffer Qwen3SpeechTokenizerDecoderRuntime::decode_and_trim_referen
     if (reference_codes.frames > std::numeric_limits<int64_t>::max() - generated_codes.frames) {
         throw std::runtime_error("Qwen3 speech decoder combined frame count is too large");
     }
+    // Only the reference's last kLeftContextCodes frames reach the decoder. Its convolutions are
+    // causal and its attention looks back a sliding window, so the generated audio depends on
+    // the frames just before it — the same left context the chunked decode above already gives
+    // every chunk after the first. Decoding the whole clip again with every line made a clone's
+    // decoder work — and memory — grow with the length of its reference clip.
+    const int64_t kept_reference = std::min<int64_t>(reference_codes.frames, kLeftContextCodes);
+    const int64_t skipped_reference = reference_codes.frames - kept_reference;
     Qwen3SpeechCodes combined;
-    combined.frames = reference_codes.frames + generated_codes.frames;
+    combined.frames = kept_reference + generated_codes.frames;
     combined.code_groups = reference_codes.code_groups;
     if (combined.frames > std::numeric_limits<int64_t>::max() / combined.code_groups) {
         throw std::runtime_error("Qwen3 speech decoder combined code count is too large");
@@ -1291,13 +1298,16 @@ runtime::AudioBuffer Qwen3SpeechTokenizerDecoderRuntime::decode_and_trim_referen
         throw std::runtime_error("Qwen3 speech decoder combined code count exceeds host size limits");
     }
     combined.codes.reserve(static_cast<size_t>(combined_code_count));
-    combined.codes.insert(combined.codes.end(), reference_codes.codes.begin(), reference_codes.codes.end());
+    combined.codes.insert(
+        combined.codes.end(),
+        reference_codes.codes.begin() + static_cast<std::ptrdiff_t>(skipped_reference * reference_codes.code_groups),
+        reference_codes.codes.end());
     combined.codes.insert(combined.codes.end(), generated_codes.codes.begin(), generated_codes.codes.end());
     auto audio = decode(combined);
-    if (reference_codes.frames > std::numeric_limits<int64_t>::max() / kDecodeSamplesPerCode) {
+    if (kept_reference > std::numeric_limits<int64_t>::max() / kDecodeSamplesPerCode) {
         throw std::runtime_error("Qwen3 speech decoder reference sample count is too large");
     }
-    const int64_t cut = reference_codes.frames * kDecodeSamplesPerCode;
+    const int64_t cut = kept_reference * kDecodeSamplesPerCode;
     if (static_cast<uint64_t>(cut) > audio.samples.size()) {
         throw std::runtime_error("Qwen3 speech decoder reference trim is out of range");
     }
