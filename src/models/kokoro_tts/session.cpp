@@ -38,27 +38,48 @@ constexpr const char * kModelName = "Kokoro TTS";
 /// 2026-10-07). Each piece arrives with its own quiet tail -- fading from -71 to -118 dBFS over
 /// ~550 ms -- and a leading pad of ~265 ms of zeros, so a long line held 0.9-1.3 s gaps where it
 /// was cut, against the ~260 ms Kokoro pauses at a sentence end inside a piece (median of 214
-/// such pauses on The Ninth Facet). Only samples quieter than -70 dBFS are ever cut.
+/// such pauses on The Ninth Facet). Quiet is judged the way that 260 ms was measured, and the
+/// way JustVoice's own join judges it (`audio/chunked.py`): 10 ms windows whose RMS is under
+/// -60 dBFS. A per-sample -70 dBFS left the fade's louder end on, and joins of 440-480 ms.
 constexpr double kPieceJoinPauseSeconds = 0.26;
-constexpr float kPieceJoinSilence = 3.1623e-4f;  // -70 dBFS
+constexpr double kPieceJoinSilenceDbfs = -60.0;
+constexpr int kPieceJoinWindowMs = 10;
 
 struct PieceJoinCut {
     size_t tail = 0;   // samples to drop from the end of what is merged so far
     size_t head = 0;   // samples to drop from the start of the next piece
 };
 
+/// How many samples at the start (or, `from_end`, the end) of `x` lie in quiet windows --
+/// whole windows counted from that edge; all of `x` when no window has sound.
+size_t piece_quiet_run(const std::vector<float> & x, int sample_rate, bool from_end) {
+    const size_t w = std::max<size_t>(1, static_cast<size_t>(sample_rate) * kPieceJoinWindowMs / 1000);
+    const size_t n = x.size() / w;
+    if (n == 0) {
+        return x.size();
+    }
+    const double limit = std::pow(10.0, kPieceJoinSilenceDbfs / 20.0);
+    const size_t base = from_end ? x.size() - n * w : 0;
+    for (size_t k = 0; k < n; ++k) {
+        const size_t frame = from_end ? n - 1 - k : k;
+        double sum = 0.0;
+        for (size_t i = 0; i < w; ++i) {
+            const double v = x[base + frame * w + i];
+            sum += v * v;
+        }
+        if (std::sqrt(sum / static_cast<double>(w)) > limit) {
+            return k * w;
+        }
+    }
+    return x.size();
+}
+
 /// How much of the quiet on either side of a join to drop so that `kPieceJoinPauseSeconds`
 /// is left: half from each side, the rest from whichever side has more. A join already that
 /// short, or a piece with no sound at all, is left as it is.
 PieceJoinCut piece_join_cut(const std::vector<float> & before, const std::vector<float> & after, int sample_rate) {
-    size_t tail = 0;
-    while (tail < before.size() && std::fabs(before[before.size() - 1 - tail]) <= kPieceJoinSilence) {
-        ++tail;
-    }
-    size_t head = 0;
-    while (head < after.size() && std::fabs(after[head]) <= kPieceJoinSilence) {
-        ++head;
-    }
+    const size_t tail = piece_quiet_run(before, sample_rate, true);
+    const size_t head = piece_quiet_run(after, sample_rate, false);
     if (tail == before.size() || head == after.size()) {
         return {};
     }
