@@ -14,6 +14,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
+#include <cstddef>
 #include <filesystem>
 #include <fstream>
 #include <optional>
@@ -31,6 +33,44 @@ using engine::debug::measure_ms;
 constexpr int64_t kDefaultTextChunkSize = 240;
 constexpr const char * kFamily = "kokoro_tts";
 constexpr const char * kModelName = "Kokoro TTS";
+
+/// Two pieces of one request join at Kokoro's own sentence pause and no longer (JustVoice,
+/// 2026-10-07). Each piece arrives with its own quiet tail -- fading from -71 to -118 dBFS over
+/// ~550 ms -- and a leading pad of ~265 ms of zeros, so a long line held 0.9-1.3 s gaps where it
+/// was cut, against the ~260 ms Kokoro pauses at a sentence end inside a piece (median of 214
+/// such pauses on The Ninth Facet). Only samples quieter than -70 dBFS are ever cut.
+constexpr double kPieceJoinPauseSeconds = 0.26;
+constexpr float kPieceJoinSilence = 3.1623e-4f;  // -70 dBFS
+
+struct PieceJoinCut {
+    size_t tail = 0;   // samples to drop from the end of what is merged so far
+    size_t head = 0;   // samples to drop from the start of the next piece
+};
+
+/// How much of the quiet on either side of a join to drop so that `kPieceJoinPauseSeconds`
+/// is left: half from each side, the rest from whichever side has more. A join already that
+/// short, or a piece with no sound at all, is left as it is.
+PieceJoinCut piece_join_cut(const std::vector<float> & before, const std::vector<float> & after, int sample_rate) {
+    size_t tail = 0;
+    while (tail < before.size() && std::fabs(before[before.size() - 1 - tail]) <= kPieceJoinSilence) {
+        ++tail;
+    }
+    size_t head = 0;
+    while (head < after.size() && std::fabs(after[head]) <= kPieceJoinSilence) {
+        ++head;
+    }
+    if (tail == before.size() || head == after.size()) {
+        return {};
+    }
+    const auto pause = static_cast<size_t>(kPieceJoinPauseSeconds * sample_rate);
+    if (tail + head <= pause) {
+        return {};
+    }
+    size_t keep_tail = std::min(tail, pause / 2);
+    const size_t keep_head = std::min(head, pause - keep_tail);
+    keep_tail = std::min(tail, pause - keep_head);
+    return {tail - keep_tail, head - keep_head};
+}
 
 }  // namespace
 
@@ -734,8 +774,24 @@ runtime::TaskResult KokoroTTSSession::run(const runtime::TaskRequest & request) 
         });
         const auto inference_ended = std::chrono::steady_clock::now();
         inference_ms += std::chrono::duration<double, std::milli>(inference_ended - inference_started).count();
+        // The join keeps Kokoro's own sentence pause (piece_join_cut): the quiet tail of what
+        // is merged and the quiet lead of this piece are cut down to it first.
+        size_t head_cut = 0;
+        if (!merged_audio.samples.empty()) {
+            const auto cut = piece_join_cut(merged_audio.samples, audio, 24000);
+            merged_audio.samples.resize(merged_audio.samples.size() - cut.tail);
+            head_cut = cut.head;
+            if (return_timestamps) {
+                const auto merged_end = static_cast<int64_t>(merged_audio.samples.size());
+                for (auto & timing : word_timestamps) {
+                    timing.span.end_sample = std::min(timing.span.end_sample, merged_end);
+                    timing.span.start_sample = std::min(timing.span.start_sample, merged_end);
+                }
+            }
+        }
         // Before the append and before the move: the offset is where THIS chunk starts in the
-        // merged buffer, and `audio` is about to be emptied into it.
+        // merged buffer -- less the lead about to be cut -- and `audio` is about to be emptied
+        // into it. The frames->samples scale still reads the whole piece.
         if (return_timestamps) {
             append_kokoro_word_timings(
                 word_timestamps,
@@ -743,7 +799,10 @@ runtime::TaskResult KokoroTTSSession::run(const runtime::TaskRequest & request) 
                 predictor.durations,
                 assets_->vocab,
                 audio.size(),
-                static_cast<int64_t>(merged_audio.samples.size()));
+                static_cast<int64_t>(merged_audio.samples.size()) - static_cast<int64_t>(head_cut));
+        }
+        if (head_cut > 0) {
+            audio.erase(audio.begin(), audio.begin() + static_cast<std::ptrdiff_t>(head_cut));
         }
         runtime::append_audio_buffer(merged_audio, runtime::AudioBuffer{24000, 1, std::move(audio)});
     }
