@@ -3971,3 +3971,9 @@ if (ENGINE_BUILD_EXAMPLES)
         target_link_libraries(model_spec_download_demo PRIVATE OpenMP::OpenMP_CXX)
     endif()
 endif()
+
+# JustVoice's DSP module (our fork): audiocpp_dsp, with no models and no ggml. dsp/README.md.
+option(AUDIOCPP_BUILD_DSP "Build audiocpp_dsp, the DSP endpoints" ON)
+if (AUDIOCPP_BUILD_DSP)
+    add_subdirectory(dsp)
+endif()
