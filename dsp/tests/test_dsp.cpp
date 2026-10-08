@@ -152,7 +152,6 @@ void test_analyze() {
     const Loudness l = loudness(v);
     check(l.peak_dbfs < 0 && l.peak_dbfs > -7, "peak of a half-scale tone");
     check(std::isinf(loudness(Pcm16(100, 0)).peak_dbfs), "silence has no peak");
-    check(sample_diff(v, v)->pct_identical_samples == 1.0, "a clip equals itself");
     check(!noise_margin_db(Pcm16(10, 0), 24000, 1).has_value(), "a tiny clip has no margin");
 }
 

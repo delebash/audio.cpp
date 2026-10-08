@@ -19,14 +19,6 @@ struct Loudness {
 // Over the data chunk's 16-bit samples, channels interleaved as the bytes lie.
 Loudness loudness(const std::vector<int16_t> & samples);
 
-struct SampleDiff {
-    double sample_rmse;
-    double max_sample_delta;
-    double pct_identical_samples;
-};
-// Over the shorter of the two; nullopt when it holds no sample.
-std::optional<SampleDiff> sample_diff(const std::vector<int16_t> & a, const std::vector<int16_t> & b);
-
 // nullopt for a clip under 25 frames of 20 ms, or one that is all silence.
 std::optional<double> noise_margin_db(const std::vector<int16_t> & samples, int sample_rate, int channels);
 

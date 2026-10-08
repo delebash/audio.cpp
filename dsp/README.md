@@ -42,7 +42,6 @@ is `400 {"error": {"message", "type": "invalid_request_error"}}`.
 | `/v1/dsp/fit` | `audio` | `trim` (`{below_dbfs, keep_ms}` or null), `to_sample_rate`, `to_channels` | WAV |
 | `/v1/dsp/aligner-input` | `audio` | `sample_rate` (16000) | WAV: the forced aligner's input — channels averaged, resampled, rounded half to even (a WAV already mono at the rate, or one it can't read, comes back as it is) |
 | `/v1/dsp/analyze` | `audio` | — | `{peak_dbfs, rms_dbfs, crest_factor_db, silence_ratio, clipping_ratio}` (null for −∞) |
-| `/v1/dsp/compare` | `a`, `b` | — | `{sample_rmse, max_sample_delta, pct_identical_samples}` over the shorter |
 | `/v1/dsp/noise-margin` | `audio` | — | `{noise_margin_db}` (null for under 25 frames of 20 ms, or silence) |
 | `/v1/dsp/vectors/mean` | `vector` × N (float32) | — | float32 |
 | `/v1/dsp/vectors/blend` | `vector` × N | `weights`, `normalize` | float32 |

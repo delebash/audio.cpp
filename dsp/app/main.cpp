@@ -412,23 +412,6 @@ HttpResponse handle_analyze(const Parts & p) {
     return minitts::server::json_response(print_json(obj.get()));
 }
 
-HttpResponse handle_compare(const Parts & p) {
-    const WavView a = need_wav(need(p, "a"));
-    const WavView b = need_wav(need(p, "b"));
-    const auto diff = sample_diff(wav_pcm16(a), wav_pcm16(b));
-    auto obj = make_json(cJSON_CreateObject());
-    if (diff) {
-        add_number(obj.get(), "sample_rmse", diff->sample_rmse);
-        add_number(obj.get(), "max_sample_delta", diff->max_sample_delta);
-        add_number(obj.get(), "pct_identical_samples", diff->pct_identical_samples);
-    } else {
-        cJSON_AddNullToObject(obj.get(), "sample_rmse");
-        cJSON_AddNullToObject(obj.get(), "max_sample_delta");
-        cJSON_AddNullToObject(obj.get(), "pct_identical_samples");
-    }
-    return minitts::server::json_response(print_json(obj.get()));
-}
-
 HttpResponse handle_noise_margin(const Parts & p) {
     const WavView wav = need_wav(need(p, "audio"));
     if (wav.bits_per_sample != 16) {
@@ -520,7 +503,6 @@ public:
             if (op == "fit") return handle_fit(parts);
             if (op == "aligner-input") return handle_aligner_input(parts);
             if (op == "analyze") return handle_analyze(parts);
-            if (op == "compare") return handle_compare(parts);
             if (op == "noise-margin") return handle_noise_margin(parts);
             if (op == "vectors/mean" || op == "vectors/blend" || op == "vectors/recombine") {
                 return handle_vectors(op.substr(8), parts);

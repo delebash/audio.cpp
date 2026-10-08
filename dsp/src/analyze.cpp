@@ -35,24 +35,6 @@ Loudness loudness(const std::vector<int16_t> & samples) {
     return {peak_dbfs, rms_dbfs, crest, static_cast<double>(silent) / n, static_cast<double>(clipped) / n};
 }
 
-std::optional<SampleDiff> sample_diff(const std::vector<int16_t> & a, const std::vector<int16_t> & b) {
-    const size_t n = std::min(a.size(), b.size());
-    if (n == 0) {
-        return std::nullopt;
-    }
-    std::vector<double> sq(n);
-    double max_delta = 0;
-    size_t same = 0;
-    for (size_t i = 0; i < n; ++i) {
-        const double diff = static_cast<double>(b[i]) - static_cast<double>(a[i]);
-        const double scaled = diff / 32767.0;
-        sq[i] = scaled * scaled;
-        max_delta = std::max(max_delta, std::fabs(diff));
-        same += diff == 0 ? 1 : 0;
-    }
-    return SampleDiff{std::sqrt(np_mean(sq)), max_delta / 32767.0, static_cast<double>(same) / static_cast<double>(n)};
-}
-
 std::optional<double> noise_margin_db(const std::vector<int16_t> & samples, int sample_rate, int channels) {
     std::vector<double> s;
     if (channels > 1) {
