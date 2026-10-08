@@ -210,8 +210,8 @@ ChatterboxTurboVoice ChatterboxTurboTTSComponent::prepare_voice(const runtime::A
     if (!conditionals_) {
         throw std::runtime_error(
             "this Chatterbox Turbo package has no voice encoder or speech tokenizer, so it speaks only its "
-            "built-in voice -- convert Resemble's checkpoint with "
-            "tools/community_models/chatterbox_turbo/convert_chatterbox_turbo.py to clone a voice");
+            "built-in voice -- use a cloning package (delebash/chatterbox-turbo-GGUF or "
+            "delebash/chatterbox-nano-GGUF on Hugging Face) to clone a voice");
     }
     if (reference.sample_rate <= 0 || reference.channels <= 0 || reference.samples.empty()) {
         throw std::runtime_error("Chatterbox Turbo reference audio is empty");

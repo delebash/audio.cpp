@@ -90,8 +90,8 @@ std::shared_ptr<const T3TurboInferenceWeights> load_t3_turbo_inference_weights(
     weights->speech_vocab = speech_emb_info.shape.at(0);
     weights->max_positions = wpe_info.shape.at(0);
     weights->speaker_embed_size = source.require_metadata("cond.spkr_enc.weight").shape.at(1);
-    // Turbo is GPT-2 medium (16 heads) and Nano GPT-2 small (12). A GGUF converted with
-    // convert_chatterbox_turbo.py says which in hparams.num_heads; the older repacked Turbo GGUF
+    // Turbo is GPT-2 medium (16 heads) and Nano GPT-2 small (12). A cloning package (converted
+    // from Resemble's checkpoint) says which in hparams.num_heads; the older repacked Turbo GGUF
     // has no such tensor and is Turbo.
     weights->num_heads = 16;
     if (source.has_tensor("hparams.num_heads")) {

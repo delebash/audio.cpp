@@ -45,7 +45,7 @@ public:
         runtime::CapabilitySet out;
         out.supported_tasks.push_back({runtime::VoiceTaskKind::Tts, {runtime::RunMode::Offline}});
         out.languages = {"en"};
-        // A package converted from Resemble's checkpoint (convert_chatterbox_turbo.py) clones;
+        // A cloning package (converted from Resemble's checkpoint, delebash/chatterbox-*-GGUF) clones;
         // the older repacked one speaks only its built-in voice -- see capabilities(assets).
         out.supports_speaker_reference = true;
         out.supports_style_condition = false;

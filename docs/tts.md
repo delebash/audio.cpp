@@ -127,10 +127,10 @@ own S3Gen/HiFT-vocoder loader code for the flow decoder and vocoder half.
 The package is one self-contained, audio.cpp-native GGUF, made one of two ways (see the model's
 community doc):
 
-- [`tools/community_models/chatterbox_turbo/convert_chatterbox_turbo.py`](../tools/community_models/chatterbox_turbo/convert_chatterbox_turbo.py)
-  converts Resemble AI's own checkpoint (`ResembleAI/chatterbox-turbo` or
-  `ResembleAI/chatterbox-nano`) and keeps the voice encoder and speech tokenizer, so the package
-  **clones a voice** from `--voice-ref` as well as speaking its built-in voice;
+- the cloning packages [`delebash/chatterbox-turbo-GGUF`](https://huggingface.co/delebash/chatterbox-turbo-GGUF) and [`delebash/chatterbox-nano-GGUF`](https://huggingface.co/delebash/chatterbox-nano-GGUF) are Resemble AI's own checkpoint
+  (`ResembleAI/chatterbox-turbo` or `ResembleAI/chatterbox-nano`) converted with the voice
+  encoder and speech tokenizer kept, so the package **clones a voice** from `--voice-ref` as
+  well as speaking its built-in voice;
 - [`tools/community_models/chatterbox_turbo/repack_chatterbox_turbo_gguf.py`](../tools/community_models/chatterbox_turbo/repack_chatterbox_turbo_gguf.py)
   repacks the third-party `cstr/chatterbox-turbo-GGUF` conversion without them, so that package
   speaks only its built-in voice and rejects `--voice-ref` with an explicit error.
@@ -145,7 +145,7 @@ A reference clip must be longer than 5 seconds. As upstream does, it is loudness
 | Tasks | `tts` |
 | Modes | `offline` |
 | Languages | `en` |
-| Voice input | Optional `--voice-ref` (longer than 5 s), on a package from `convert_chatterbox_turbo.py`; omit it for the built-in voice |
+| Voice input | Optional `--voice-ref` (longer than 5 s), on a cloning package (`delebash/chatterbox-turbo-GGUF` / `-nano-GGUF`); omit it for the built-in voice |
 | Built-in voices | One, embedded in the package |
 
 ```bash

@@ -16,11 +16,10 @@ reference clip (below). This family lives under `community_models` rather than t
 model tree because it does not yet have the CUDA/Vulkan/Metal runtime test coverage core models
 carry.
 
-## Converting Resemble's checkpoint (clones; Turbo or Nano)
+## The cloning packages (Turbo or Nano)
 
-[`tools/community_models/chatterbox_turbo/convert_chatterbox_turbo.py`](../../tools/community_models/chatterbox_turbo/convert_chatterbox_turbo.py)
-converts Resemble AI's own MIT checkpoint, Turbo or Nano, into one self-contained GGUF that
-**keeps the three encoders a reference clip needs**: the LSTM voice encoder (`voice_encoder/*`,
+[`delebash/chatterbox-turbo-GGUF`](https://huggingface.co/delebash/chatterbox-turbo-GGUF) and [`delebash/chatterbox-nano-GGUF`](https://huggingface.co/delebash/chatterbox-nano-GGUF) hold Resemble AI's own MIT checkpoint, Turbo or Nano, converted into one
+self-contained GGUF that **keeps the three encoders a reference clip needs**: the LSTM voice encoder (`voice_encoder/*`,
 T3's speaker embedding), the S3 speech tokenizer (`s3gen/tokenizer.*`, the prompt tokens) and
 CAMPPlus (`s3gen/speaker_encoder.*`, the decoder's speaker embedding). They are byte-identical to
 base Chatterbox's own (`ResembleAI/chatterbox`'s `ve.safetensors` and `s3gen.safetensors`), so the
@@ -32,23 +31,14 @@ decoder prompt from the first 10 s. Prepared clips are kept per clip
 
 The rest is renamed to what the existing loaders read: GPT-2's Conv1D weights are transposed
 into `blk.N.*`, the HiFT vocoder's weight norm is folded into `v.*`, the head count goes into
-`t3/hparams.num_heads`, and the built-in voice is read from `conds.pt` without torch. The
-tokenizer sidecars come out byte-identical to the repacked package's.
+`t3/hparams.num_heads`, and the built-in voice is read from `conds.pt`. The tokenizer sidecars
+are byte-identical to the repacked package's. (The converter that made them was retired with
+the JustVoice family's Python on 2026-10-08; it is in this fork's history at `3865d245`.)
 
 ```bash
-# 1. Build the converter
-cmake --build build/debug --parallel --target audiocpp_gguf
-
-# 2. Resemble's checkpoint (Turbo; for Nano use ResembleAI/chatterbox-nano and t3_nano_v1.safetensors)
-hf download ResembleAI/chatterbox-turbo \
-    t3_turbo_v1.safetensors s3gen_meanflow.safetensors ve.safetensors conds.pt \
-    vocab.json merges.txt added_tokens.json --local-dir /tmp/chatterbox-turbo
-
-# 3. Convert (q8_0 or f16)
-pip install numpy safetensors
-python3 tools/community_models/chatterbox_turbo/convert_chatterbox_turbo.py \
-    --checkpoint /tmp/chatterbox-turbo \
-    --output models/Chatterbox-Turbo-GGUF/chatterbox-turbo-q8_0.gguf --type q8_0 --overwrite
+# Turbo (for Nano: delebash/chatterbox-nano-GGUF and chatterbox-nano-q8_0.gguf)
+hf download delebash/chatterbox-turbo-GGUF chatterbox-turbo-q8_0.gguf \
+    --local-dir models/Chatterbox-Turbo-GGUF
 ```
 
 Clone with `--voice-ref`:
@@ -128,5 +118,5 @@ table.
 | Model | Source | License |
 |---|---|---|
 | Chatterbox Turbo (T3 + S3Gen) | `cstr/chatterbox-turbo-GGUF` (third-party repack of `ResembleAI/chatterbox-turbo`) | MIT |
-| Chatterbox Turbo, cloning (T3 + S3Gen + encoders) | `ResembleAI/chatterbox-turbo` via `convert_chatterbox_turbo.py` | MIT |
-| Chatterbox Nano, cloning (T3 + S3Gen + encoders) | `ResembleAI/chatterbox-nano` via `convert_chatterbox_turbo.py` | MIT |
+| Chatterbox Turbo, cloning (T3 + S3Gen + encoders) | `delebash/chatterbox-turbo-GGUF` (converted from `ResembleAI/chatterbox-turbo`) | MIT |
+| Chatterbox Nano, cloning (T3 + S3Gen + encoders) | `delebash/chatterbox-nano-GGUF` (converted from `ResembleAI/chatterbox-nano`) | MIT |

@@ -61,17 +61,12 @@ take is skipped, and a value that isn't a number fails that effect alone.
 
 ## Parity
 
-`tests/parity/parity.py` runs every endpoint against JustVoice's own Python functions — the
-reference until it was deleted — and counts differing 16-bit samples:
-
-```bash
-<JustVoice>/server/.venv/Scripts/python.exe dsp/tests/parity/parity.py --justvoice <JustVoice>
-```
-
-Its inputs are synthetic (speech-like bursts at 22.05, 24 and 48 kHz, stereo, sweeps, noise, an
-impulse, padded pieces), plus up to eight of JustVoice's own cached renders, read in place.
-The Python was deleted in JustVoice's commit after **`7d0cecb`**; to run the harness again,
-point `--justvoice` at a worktree of `7d0cecb`.
+Every endpoint was run against JustVoice's own Python functions — the reference until they
+were deleted — counting differing 16-bit samples, on synthetic inputs (speech-like bursts at
+22.05, 24 and 48 kHz, stereo, sweeps, noise, an impulse, padded pieces) plus up to eight of
+JustVoice's own cached renders. The harness (`tests/parity/parity.py`) went with the family's
+Python on 2026-10-08; it is in this fork's history at `44518561`, and JustVoice's Python at its
+commit `7d0cecb`.
 
 The result on 2026-10-07 (Windows, MSVC 14.44): **PASS** — effects 369, shaped lines 52, joins
 72, streamed seams 20, fits 224, aligner input 18, analyzer 90, vectors 14 — all identical. Signalsmith (pitch and

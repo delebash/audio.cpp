@@ -15,8 +15,8 @@ struct ChatterboxTurboAssets {
     std::shared_ptr<const engine::assets::TensorSource> t3_turbo_weights;
     std::shared_ptr<const engine::assets::TensorSource> builtin_conditionals_turbo;
     std::shared_ptr<const engine::assets::TensorSource> s3gen_weights;
-    // Present only in a GGUF converted from Resemble's own checkpoint
-    // (tools/community_models/chatterbox_turbo/convert_chatterbox_turbo.py); null otherwise.
+    // Present only in a cloning package converted from Resemble's own checkpoint
+    // (delebash/chatterbox-turbo-GGUF, delebash/chatterbox-nano-GGUF); null otherwise.
     std::shared_ptr<const engine::assets::TensorSource> voice_encoder_weights;
 };
 
