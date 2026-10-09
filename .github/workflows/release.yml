@@ -34,7 +34,8 @@ on:
 
 env:
   GH_TOKEN: ${{ github.token }}
-  BUILD_TARGETS: audiocpp_cli audiocpp_server audiocpp_gguf
+  # audiocpp_dsp: JustVoice's audio math (dsp/README.md), CPU-only, shipped beside the app's executable
+  BUILD_TARGETS: audiocpp_cli audiocpp_server audiocpp_gguf audiocpp_dsp
   VULKAN_VERSION: '1.4.357.0'
   CMAKE_ARGS: "-DAUDIOCPP_DEPLOYMENT_BUILD=ON -DAUDIOCPP_BUILD_NATIVE_MODEL_MANAGER=ON -DENGINE_ENABLE_LLAMAFILE=ON -DENGINE_ENABLE_CUDA_GRAPHS=ON"
 
@@ -326,6 +327,7 @@ jobs:
           .\scripts\build_windows.ps1 -Preset windows-cpu-release -Target audiocpp_cli -DeploymentBuild -NativeModelManager -Version ${{ needs.get-version.outputs.version }}
           .\scripts\build_windows.ps1 -Preset windows-cpu-release -Target audiocpp_server -DeploymentBuild -NativeModelManager -Version ${{ needs.get-version.outputs.version }}
           .\scripts\build_windows.ps1 -Preset windows-cpu-release -Target audiocpp_gguf -DeploymentBuild -NativeModelManager -Version ${{ needs.get-version.outputs.version }}
+          .\scripts\build_windows.ps1 -Preset windows-cpu-release -Target audiocpp_dsp -DeploymentBuild -NativeModelManager -Version ${{ needs.get-version.outputs.version }}
       - name: Bundle VC runtime
         shell: pwsh
         working-directory: build/windows-cpu-release/bin
@@ -375,6 +377,7 @@ jobs:
           .\scripts\build_windows.ps1 -Preset windows-cpu-release -Target audiocpp_cli -DeploymentBuild -NativeModelManager -CpuArch baseline -Llamafile OFF -Version ${{ needs.get-version.outputs.version }}
           .\scripts\build_windows.ps1 -Preset windows-cpu-release -Target audiocpp_server -DeploymentBuild -NativeModelManager -CpuArch baseline -Llamafile OFF -Version ${{ needs.get-version.outputs.version }}
           .\scripts\build_windows.ps1 -Preset windows-cpu-release -Target audiocpp_gguf -DeploymentBuild -NativeModelManager -CpuArch baseline -Llamafile OFF -Version ${{ needs.get-version.outputs.version }}
+          .\scripts\build_windows.ps1 -Preset windows-cpu-release -Target audiocpp_dsp -DeploymentBuild -NativeModelManager -CpuArch baseline -Llamafile OFF -Version ${{ needs.get-version.outputs.version }}
       - name: Bundle VC runtime
         shell: pwsh
         working-directory: build/windows-cpu-release/bin
@@ -431,6 +434,7 @@ jobs:
           .\scripts\build_windows.ps1 -Preset windows-vulkan-release -Target audiocpp_cli -DeploymentBuild -NativeModelManager -Version ${{ needs.get-version.outputs.version }}
           .\scripts\build_windows.ps1 -Preset windows-vulkan-release -Target audiocpp_server -DeploymentBuild -NativeModelManager -Version ${{ needs.get-version.outputs.version }}
           .\scripts\build_windows.ps1 -Preset windows-vulkan-release -Target audiocpp_gguf -DeploymentBuild -NativeModelManager -Version ${{ needs.get-version.outputs.version }}
+          .\scripts\build_windows.ps1 -Preset windows-vulkan-release -Target audiocpp_dsp -DeploymentBuild -NativeModelManager -Version ${{ needs.get-version.outputs.version }}
       - name: Bundle VC runtime
         shell: pwsh
         working-directory: build/windows-vulkan-release/bin
