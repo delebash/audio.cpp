@@ -13,7 +13,9 @@ add_library(audiocpp_dsp_core STATIC
     src/analyze.cpp
     src/vectors.cpp
 )
-target_include_directories(audiocpp_dsp_core PUBLIC
+# SYSTEM: the vendored Signalsmith headers are not ours, so the project's -pedantic-errors does not
+# judge them (GCC failed the Linux release builds on their macro-closing ';', 2026-10-09).
+target_include_directories(audiocpp_dsp_core SYSTEM PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/signalsmith-stretch/include
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/signalsmith-linear/include
 )
