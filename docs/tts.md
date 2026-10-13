@@ -170,7 +170,8 @@ community doc):
 - the cloning packages [`delebash/chatterbox-turbo-GGUF`](https://huggingface.co/delebash/chatterbox-turbo-GGUF) and [`delebash/chatterbox-nano-GGUF`](https://huggingface.co/delebash/chatterbox-nano-GGUF) are Resemble AI's own checkpoint
   (`ResembleAI/chatterbox-turbo` or `ResembleAI/chatterbox-nano`) converted with the voice
   encoder and speech tokenizer kept, so the package **clones a voice** from `--voice-ref` as
-  well as speaking its built-in voice;
+  well as speaking its built-in voice; [`tools/community_models/chatterbox_turbo/convert_chatterbox_turbo.py`](../tools/community_models/chatterbox_turbo/convert_chatterbox_turbo.py)
+  makes them from Resemble's checkpoint;
 - [`tools/community_models/chatterbox_turbo/repack_chatterbox_turbo_gguf.py`](../tools/community_models/chatterbox_turbo/repack_chatterbox_turbo_gguf.py)
   repacks the third-party `cstr/chatterbox-turbo-GGUF` conversion without them, so that package
   speaks only its built-in voice and rejects `--voice-ref` with an explicit error.

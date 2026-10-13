@@ -32,8 +32,20 @@ decoder prompt from the first 10 s. Prepared clips are kept per clip
 The rest is renamed to what the existing loaders read: GPT-2's Conv1D weights are transposed
 into `blk.N.*`, the HiFT vocoder's weight norm is folded into `v.*`, the head count goes into
 `t3/hparams.num_heads`, and the built-in voice is read from `conds.pt`. The tokenizer sidecars
-are byte-identical to the repacked package's. (The converter that made them was retired with
-the JustVoice family's Python on 2026-10-08; it is in this fork's history at `3865d245`.)
+are byte-identical to the repacked package's. They were made with
+[`tools/community_models/chatterbox_turbo/convert_chatterbox_turbo.py`](../../tools/community_models/chatterbox_turbo/convert_chatterbox_turbo.py),
+which converts Resemble's checkpoint the same way:
+
+```bash
+# Resemble's checkpoint (Turbo; for Nano use ResembleAI/chatterbox-nano and t3_nano_v1.safetensors)
+hf download ResembleAI/chatterbox-turbo \n    t3_turbo_v1.safetensors s3gen_meanflow.safetensors ve.safetensors conds.pt \n    vocab.json merges.txt added_tokens.json --local-dir /tmp/chatterbox-turbo
+
+# Convert (q8_0 or f16)
+pip install numpy safetensors
+python3 tools/community_models/chatterbox_turbo/convert_chatterbox_turbo.py \n    --checkpoint /tmp/chatterbox-turbo \n    --output models/Chatterbox-Turbo-GGUF/chatterbox-turbo-q8_0.gguf --type q8_0 --overwrite
+```
+
+Or download the published packages:
 
 ```bash
 # Turbo (for Nano: delebash/chatterbox-nano-GGUF and chatterbox-nano-q8_0.gguf)
