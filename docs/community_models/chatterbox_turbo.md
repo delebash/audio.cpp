@@ -38,11 +38,15 @@ which converts Resemble's checkpoint the same way:
 
 ```bash
 # Resemble's checkpoint (Turbo; for Nano use ResembleAI/chatterbox-nano and t3_nano_v1.safetensors)
-hf download ResembleAI/chatterbox-turbo \n    t3_turbo_v1.safetensors s3gen_meanflow.safetensors ve.safetensors conds.pt \n    vocab.json merges.txt added_tokens.json --local-dir /tmp/chatterbox-turbo
+hf download ResembleAI/chatterbox-turbo \
+    t3_turbo_v1.safetensors s3gen_meanflow.safetensors ve.safetensors conds.pt \
+    vocab.json merges.txt added_tokens.json --local-dir /tmp/chatterbox-turbo
 
 # Convert (q8_0 or f16)
 pip install numpy safetensors
-python3 tools/community_models/chatterbox_turbo/convert_chatterbox_turbo.py \n    --checkpoint /tmp/chatterbox-turbo \n    --output models/Chatterbox-Turbo-GGUF/chatterbox-turbo-q8_0.gguf --type q8_0 --overwrite
+python3 tools/community_models/chatterbox_turbo/convert_chatterbox_turbo.py \
+    --checkpoint /tmp/chatterbox-turbo \
+    --output models/Chatterbox-Turbo-GGUF/chatterbox-turbo-q8_0.gguf --type q8_0 --overwrite
 ```
 
 Or download the published packages:
