@@ -149,6 +149,12 @@
         "required": false
       },
       {
+        "name": "reference_text",
+        "type": "string",
+        "description": "Transcript of the voice reference clip. With a reference clip and no prompt audio of its own, the server also passes the clip as the prompt audio, as VoxCPM2's own README passes the same clip to both (transcript-guided cloning).",
+        "required": false
+      },
+      {
         "name": "chunk_strategy",
         "type": "enum",
         "description": "Long-form continuation or independent generation per chunk. Offline only.",

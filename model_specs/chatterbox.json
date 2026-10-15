@@ -1,7 +1,7 @@
 {
   "family": "chatterbox",
   "display_name": "Chatterbox",
-  "description": "Open-source Chatterbox family for expressive TTS and voice conversion, with emotion exaggeration control, fast generation, zero-shot voice cloning, and an integrated multilingual TTS path.",
+  "description": "Open-source Chatterbox family for expressive TTS and voice conversion, with emotion exaggeration control, fast generation, zero-shot voice cloning, and an integrated multilingual TTS path. The multilingual path speaks 23 languages: Hebrew and Russian pass the text through as upstream does in practice, Chinese becomes Cangjie tokens after jieba splits the words (its dictionary staged beside the executable or in AUDIOCPP_JIEBA_DIR; without it the words are not split), and Japanese reads kanji through MeCab and the optional UniDic dictionary (AUDIOCPP_UNIDIC_DIR), refused by name without it.",
   "category": "tts",
   "status": "supported",
   "tasks": [
@@ -21,17 +21,21 @@
     "es",
     "fi",
     "fr",
+    "he",
     "hi",
     "it",
+    "ja",
     "ko",
     "ms",
     "nl",
     "no",
     "pl",
     "pt",
+    "ru",
     "sv",
     "sw",
-    "tr"
+    "tr",
+    "zh"
   ],
   "options": {
     "request": [

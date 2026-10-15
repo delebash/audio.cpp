@@ -2,7 +2,7 @@
   "schema_version": 1,
   "family": "kokoro_tts",
   "display_name": "Kokoro 82M",
-  "description": "Kokoro 82M multilingual text-to-speech with 54 preset voices, optimized native CPU inference, and shared eSpeak-ng phonemization.",
+  "description": "Kokoro 82M multilingual text-to-speech with 54 preset voices, optimized native CPU inference, and shared eSpeak-ng phonemization. A word in the text may carry its own pronunciation as \"[word](/phonemes/)\", the markup hexgrad/Kokoro's misaki reads: it is spoken from the phonemes given, which must be Kokoro's own symbols (a wrong one is refused with its word named), and the text around it goes through the G2P.",
   "category": "tts",
   "status": "community",
   "tasks": ["tts"],
@@ -48,6 +48,12 @@
         "name": "phonemes",
         "type": "string_list",
         "description": "Kokoro-vocabulary phonemes to synthesize directly, bypassing the built-in eSpeak-ng G2P. One entry per chunk: entries are rendered in order and merged into one result, so the caller chooses the split points that only its own G2P knows. Each entry must be at most 510 symbols and must not be empty -- an entry is a chunk to speak, so drop it rather than leaving it blank. Text is still required and its language must still match the voice.",
+        "required": false
+      },
+      {
+        "name": "voice_pack",
+        "type": "path",
+        "description": "A raw little-endian float32 file of rows x 256 style values, the format of the package's voices/<id>.bin, used as the style pack in place of the selected voice's own (a blend of voices). The voice still picks the language and the G2P; the pack's id joins it in the synthesis cache key. A malformed file is refused by name.",
         "required": false
       },
       {

@@ -137,6 +137,66 @@
         "Chatterbox-Turbo-GGUF/chatterbox-turbo-f16.gguf"
       ],
       "strip_prefix": "Chatterbox-Turbo-GGUF"
+    },
+    {
+      "id": "chatterbox_turbo_clone_q8_0",
+      "display_name": "Chatterbox Turbo (cloning) Q8_0 GGUF",
+      "description": "Converted from ResembleAI/chatterbox-turbo with the voice encoder, S3 speech tokenizer and CAMPPlus kept, so it clones a voice from a reference clip longer than 5 seconds; it also speaks the built-in voice.",
+      "format": "gguf",
+      "precision": "q8_0",
+      "target_directory": "Chatterbox-Turbo-Clone-GGUF",
+      "files": [
+        "chatterbox-turbo-q8_0.gguf"
+      ],
+      "download": {
+        "kind": "huggingface_snapshot",
+        "repo": "delebash/chatterbox-turbo-GGUF"
+      }
+    },
+    {
+      "id": "chatterbox_turbo_clone_f16",
+      "display_name": "Chatterbox Turbo (cloning) F16 GGUF",
+      "description": "Converted from ResembleAI/chatterbox-turbo with the voice encoder, S3 speech tokenizer and CAMPPlus kept, so it clones a voice from a reference clip longer than 5 seconds; it also speaks the built-in voice.",
+      "format": "gguf",
+      "precision": "f16",
+      "target_directory": "Chatterbox-Turbo-Clone-GGUF",
+      "files": [
+        "chatterbox-turbo-f16.gguf"
+      ],
+      "download": {
+        "kind": "huggingface_snapshot",
+        "repo": "delebash/chatterbox-turbo-GGUF"
+      }
+    },
+    {
+      "id": "chatterbox_nano_q8_0",
+      "display_name": "Chatterbox Nano Q8_0 GGUF",
+      "description": "Turbo's architecture at 110M parameters (12 attention heads), converted from ResembleAI/chatterbox-nano with the voice encoder, S3 speech tokenizer and CAMPPlus kept, so it clones a voice from a reference clip longer than 5 seconds; it also speaks the built-in voice.",
+      "format": "gguf",
+      "precision": "q8_0",
+      "target_directory": "Chatterbox-Nano-GGUF",
+      "files": [
+        "chatterbox-nano-q8_0.gguf"
+      ],
+      "download": {
+        "kind": "huggingface_snapshot",
+        "repo": "delebash/chatterbox-nano-GGUF"
+      }
+    },
+    {
+      "id": "chatterbox_nano_f16",
+      "display_name": "Chatterbox Nano F16 GGUF",
+      "description": "Turbo's architecture at 110M parameters (12 attention heads), converted from ResembleAI/chatterbox-nano with the voice encoder, S3 speech tokenizer and CAMPPlus kept, so it clones a voice from a reference clip longer than 5 seconds; it also speaks the built-in voice.",
+      "format": "gguf",
+      "precision": "f16",
+      "target_directory": "Chatterbox-Nano-GGUF",
+      "files": [
+        "chatterbox-nano-f16.gguf"
+      ],
+      "download": {
+        "kind": "huggingface_snapshot",
+        "repo": "delebash/chatterbox-nano-GGUF"
+      }
     }
   ],
   "sources": [
