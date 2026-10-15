@@ -4,9 +4,9 @@
 
 #include "engine/framework/core/execution_context.h"
 #include "engine/framework/tokenizers/llama_bpe.h"
+#include "engine/framework/codecs/s3gen_runtime.h"
 #include "engine/framework/runtime/session.h"
 #include "engine/models/chatterbox/conditionals.h"
-#include "engine/models/chatterbox/s3gen_inference.h"
 #include "engine/community_models/chatterbox_turbo/assets.h"
 #include "engine/community_models/chatterbox_turbo/s3gen_turbo.h"
 #include "engine/community_models/chatterbox_turbo/t3_turbo_component.h"
@@ -35,7 +35,7 @@ struct ChatterboxTurboGenerateConfig {
 struct ChatterboxTurboVoice {
     std::vector<float> speaker_embedding;
     std::vector<int32_t> cond_prompt_speech_tokens;
-    engine::models::chatterbox::EmbedReferenceOutputs ref_dict;
+    engine::codecs::s3gen::S3GenConditioning ref_dict;
 };
 
 // Orchestrates the full Turbo TTS pipeline (T3 GPT2 backbone -> S3Gen meanflow decoder -> HiFT
@@ -54,7 +54,7 @@ public:
     // 375-token / 15 s T3 prompt and 10 s decoder prompt.
     ChatterboxTurboVoice prepare_voice(const engine::runtime::AudioBuffer & reference) const;
 
-    engine::models::chatterbox::S3GenInferenceOutputs generate(
+    engine::codecs::s3gen::S3GenInferenceOutputs generate(
         const std::string & text,
         const ChatterboxTurboGenerateConfig & config,
         const ChatterboxTurboVoice * voice = nullptr) const;

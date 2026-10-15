@@ -249,7 +249,7 @@ ChatterboxTurboVoice ChatterboxTurboTTSComponent::prepare_voice(const runtime::A
     return voice;
 }
 
-engine::models::chatterbox::S3GenInferenceOutputs ChatterboxTurboTTSComponent::generate(
+engine::codecs::s3gen::S3GenInferenceOutputs ChatterboxTurboTTSComponent::generate(
     const std::string & text,
     const ChatterboxTurboGenerateConfig & config,
     const ChatterboxTurboVoice * voice) const {
