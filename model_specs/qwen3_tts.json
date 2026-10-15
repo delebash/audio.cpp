@@ -451,6 +451,36 @@
       "strip_prefix": "Qwen3-TTS-12Hz-0.6B-Base-GGUF"
     },
     {
+      "id": "qwen3_tts_0_6b_customvoice_q8_0",
+      "display_name": "Qwen3 TTS 12Hz 0.6B CustomVoice Q8_0 GGUF",
+      "description": "Converted from Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice with audiocpp_gguf, which keeps the same tensors 16-bit as the published 1.7B CustomVoice Q8_0. The nine preset speakers of the 1.7B.",
+      "format": "gguf",
+      "precision": "q8_0",
+      "target_directory": "Qwen3-TTS-12Hz-0.6B-CustomVoice-GGUF",
+      "files": [
+        "qwen3-tts-12hz-0.6b-customvoice-q8_0.gguf"
+      ],
+      "download": {
+        "kind": "huggingface_snapshot",
+        "repo": "delebash/Qwen3-TTS-12Hz-0.6B-CustomVoice-GGUF"
+      }
+    },
+    {
+      "id": "qwen3_tts_0_6b_customvoice_bf16",
+      "display_name": "Qwen3 TTS 12Hz 0.6B CustomVoice BF16 GGUF",
+      "description": "Converted from Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice with audiocpp_gguf. The nine preset speakers of the 1.7B.",
+      "format": "gguf",
+      "precision": "bf16",
+      "target_directory": "Qwen3-TTS-12Hz-0.6B-CustomVoice-GGUF",
+      "files": [
+        "qwen3-tts-12hz-0.6b-customvoice-bf16.gguf"
+      ],
+      "download": {
+        "kind": "huggingface_snapshot",
+        "repo": "delebash/Qwen3-TTS-12Hz-0.6B-CustomVoice-GGUF"
+      }
+    },
+    {
       "id": "qwen3_tts_1_7b_base_safetensors",
       "display_name": "Qwen3 TTS 12Hz 1.7B Base Safetensors",
       "format": "safetensors",
