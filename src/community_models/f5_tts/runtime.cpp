@@ -235,6 +235,7 @@ std::pair<std::vector<float>, std::vector<float>> f5_dit_forward_cfg(
         ggml_tensor * th_t = nullptr;     // [256, 1]
         ggml_tensor * output = nullptr;   // [MEL, N] (half 0, conditioned)
         ggml_tensor * out_u = nullptr;    // [MEL, N] (half 1, uncond)
+        std::vector<ConstStage> * staged = nullptr;  // its constants (CUDA buffers)
         ~CfgGraph() {
             // Cache eviction (more than two distinct (N, NT) keys in one process,
             // i.e. every chunk past the second of a chunked request) destroys the
@@ -244,6 +245,7 @@ std::pair<std::vector<float>, std::vector<float>> f5_dit_forward_cfg(
             // was lowered from 2 to 1 (more evictions, same leaks).
             if (gallocr != nullptr) ggml_gallocr_free(gallocr);
             if (io_buffer != nullptr) ggml_backend_buffer_free(io_buffer);
+            const_stage_free(staged);
             if (ctx != nullptr) ggml_free(ctx);
         }
     };
@@ -273,6 +275,7 @@ std::pair<std::vector<float>, std::vector<float>> f5_dit_forward_cfg(
         const F5DiTWeights & dit_w = load_dit_weights_once(weights_path, dev);
         std::vector<engine::models::f5_tts::ConstStage> * cfg_staged = nullptr;
         auto * stage = const_stage_begin();
+        gnew->staged = stage;  // freed with the graph
         auto io = build_dit_cfg_modules_graph(
             ctx, dit_w, arch, N, NT, model.backend_type);
         const_stage_end(stage);
@@ -446,11 +449,13 @@ std::vector<float> f5_dit_forward(
         ggml_tensor * tap_time_embed = nullptr;
         ggml_tensor * tap_block0 = nullptr;
         ggml_tensor * tap_block21 = nullptr;
+        std::vector<ConstStage> * staged = nullptr;  // its constants (CUDA buffers)
         ~DiTGraph() {
             // Leaked by design when cached (freed only on program-graph reset);
             // destroyed here only when construction throws mid-build.
             if (gallocr != nullptr) ggml_gallocr_free(gallocr);
             if (io_buffer != nullptr) ggml_backend_buffer_free(io_buffer);
+            const_stage_free(staged);
             if (ctx != nullptr) ggml_free(ctx);
         }
     };
@@ -492,6 +497,7 @@ std::vector<float> f5_dit_forward(
     const F5DiTWeights & dit_w = load_dit_weights_once(weights_path, dev);
     std::vector<engine::models::f5_tts::ConstStage> * staged_module_consts = nullptr;
     auto * stage = const_stage_begin();
+    gnew->staged = stage;  // freed with the graph
     auto io = build_dit_modules_graph(
         ctx, dit_w, arch, N, NT, model.backend_type);
     const_stage_end(stage);

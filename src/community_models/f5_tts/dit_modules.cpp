@@ -234,7 +234,7 @@ void const_stage_bind(std::vector<ConstStage> * stage, ggml_backend_t backend) {
         if (buf == nullptr) continue;
         c.tensor->buffer = buf;
         c.tensor->data = ggml_backend_buffer_get_base(buf);
-        c.owned_buffer = buf;  // leaked with the graph (driver shutdown)
+        c.owned_buffer = buf;  // freed with the graph (const_stage_free)
     }
 }
 
@@ -249,10 +249,22 @@ void const_stage_upload(std::vector<ConstStage> * stage, ggml_backend_t backend)
     }
 }
 void const_stage_end(std::vector<ConstStage> * stage) {
-    // detach only; the vector is deliberately leaked (a few KB per graph
-    // build) to avoid ownership hazards across build paths.
+    // detach only; the graph that built the stage owns it (const_stage_free).
     t_const_stage = nullptr;
     (void)stage;
+}
+void const_stage_free(std::vector<ConstStage> * stage) {
+    // Called when the graph that owns the stage is destroyed (cache eviction, or
+    // a build that threw). On CUDA every constant has its own backend buffer
+    // and its host bytes (the batched-CFG graph's pad block alone is
+    // 2 * (N - NT) * 512 floats), so a stage left behind per evicted graph kept
+    // megabytes of device and host memory for every new (N, NT).
+    if (stage == nullptr) return;
+    if (t_const_stage == stage) t_const_stage = nullptr;
+    for (auto & c : *stage) {
+        if (c.owned_buffer != nullptr) ggml_backend_buffer_free(c.owned_buffer);
+    }
+    delete stage;
 }
 
 
