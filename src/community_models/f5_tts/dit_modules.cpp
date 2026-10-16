@@ -98,6 +98,12 @@ core::TensorValue grouped_conv1d(
 core::TensorValue ctx_store_f32(
     core::ModuleBuildContext & ctx, const core::TensorShape & shape,
     const std::vector<float> & values) {
+    // Every element is written: a short value list would leave the rest of the tensor as
+    // whatever its memory held, which made a take depend on what the process ran before.
+    if (static_cast<int64_t>(values.size()) != shape.num_elements()) {
+        throw std::runtime_error("F5 constant has " + std::to_string(values.size()) + " values for " +
+                                 std::to_string(shape.num_elements()) + " elements");
+    }
     auto t = core::make_tensor(ctx, GGML_TYPE_F32, shape);
     ggml_set_input(t.tensor);  // literal data: never scratch for the allocator
     if (t.tensor->data != nullptr) {
@@ -166,8 +172,10 @@ core::TensorValue grn(
     auto mean = mod::ReduceMeanModule({2}).build(ctx, gx);  // [B, 1, 1]
     // nx = gx / (mean + eps): eps via a constant scalar broadcast
     // (ReduceMean + add-eps fused: use MeanModule output + eps tensor)
-    // eps as a [1,1,1] constant:
-    auto eps = ctx_store_f32(ctx, mean.shape, std::vector<float>{1e-6F});
+    // eps as a [B,1,1] constant, one per batch row: the batched-CFG graph's mean is
+    // [2, 1, 1], and a single value left the unconditional half's eps unwritten
+    auto eps = ctx_store_f32(
+        ctx, mean.shape, std::vector<float>(static_cast<size_t>(mean.shape.num_elements()), 1e-6F));
     auto denom = mod::AddModule().build(ctx, mean, eps);
     auto nx = core::wrap_tensor(
         ggml_div(ctx.ggml, gx.tensor, denom.tensor), gx.shape, GGML_TYPE_F32);
