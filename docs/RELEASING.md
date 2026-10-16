@@ -47,6 +47,11 @@ Notes:
   `msvcp140*.dll`, `vcomp140.dll`) so they run on clean Windows without a
   separately installed VC++ Redistributable. Total added size is ~1 MB
   compressed (negligible vs. the CPU/Vulkan/CUDA package sizes).
+- Every `bin` package carries `assets/framework/models/silero_vad/` (the 1.2 MB
+  Silero VAD weights and their MIT `LICENSE`) beside the executables: the
+  recognisers default their VAD to that path relative to the working folder,
+  and SenseVoice does not load without it. The build stages it
+  (`cmake/bundled_assets.cmake`); the Colab bundle copies it from there.
 
 ## When the workflow runs
 

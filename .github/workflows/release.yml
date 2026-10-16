@@ -508,6 +508,8 @@ jobs:
           install -m 0644 LICENSE dist/LICENSE
           cp -r tools dist/tools
           cp -r model_specs dist/model_specs
+          # Silero VAD and its licence, staged beside the server by the build (cmake/bundled_assets.cmake)
+          cp -r build/colab-cuda/bin/assets dist/assets
           sha256sum dist/audiocpp_server > dist/SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:

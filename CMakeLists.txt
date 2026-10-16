@@ -3035,6 +3035,9 @@ endif()
 # jieba's dictionaries and (Windows) libmecab beside audiocpp_server and audiocpp_cli.
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/text_dictionaries.cmake")
 audiocpp_stage_text_dictionaries()
+# Silero VAD (assets/framework/models/silero_vad) beside them, where the recognisers look.
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/bundled_assets.cmake")
+audiocpp_stage_bundled_assets()
 
 add_executable(audiocpp_gguf
     app/gguf/main.cpp
