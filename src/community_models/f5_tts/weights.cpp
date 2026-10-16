@@ -16,8 +16,13 @@ F5DiTWeights load_dit_weights(
     ggml_backend_t backend,
     core::BackendType backend_type) {
     F5DiTWeights w;
+    // The store's context is no_alloc on every backend: it holds one header per weight
+    // tensor (355 at this architecture) and the data goes to the backend buffer. ggml_init
+    // mallocs the size it is given, which on Windows is committed memory, so the 2 GiB this
+    // asked for held 2 GiB of commit for ~130 KB of headers.
+    constexpr size_t kWeightTensors = 512;
     w.store = std::make_shared<core::BackendWeightStore>(
-        backend, backend_type, "f5_tts.weights", 2ULL * 1024ULL * 1024ULL * 1024ULL);
+        backend, backend_type, "f5_tts.weights", kWeightTensors * ggml_tensor_overhead());
 
     const auto tensor = [&](const std::string & n,
                             std::initializer_list<int64_t> shape) {
