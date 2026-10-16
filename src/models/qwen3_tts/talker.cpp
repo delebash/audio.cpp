@@ -1505,6 +1505,10 @@ public:
         if (buffer_ == nullptr) {
             throw std::runtime_error("failed to allocate Qwen3 code predictor graph");
         }
+        // Each step attends over all code_groups_ cache slots, the unwritten ones masked with
+        // -inf; a fresh device buffer holds whatever memory it reuses, and a stale NaN or inf
+        // there survives the mask (NaN + -inf, 0 * inf). Start from zeros.
+        ggml_backend_buffer_clear(buffer_, 0);
         step_attention_mask_buffer_.assign(static_cast<size_t>(code_groups_), ggml_fp32_to_fp16(-INFINITY));
         int32_t prefill_positions[2] = {0, 1};
         ggml_backend_tensor_set(prefill_positions_, prefill_positions, 0, sizeof(prefill_positions));
