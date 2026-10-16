@@ -33,6 +33,19 @@ namespace {
 namespace core = engine::core;
 namespace modules = engine::modules;
 
+// Node capacity of the DiT graphs (plain and batched-CFG).
+constexpr size_t kDiTGraphNodes = 262144;
+
+// Bytes for a no_alloc context that holds a graph of `graph_nodes` nodes: one header per
+// tensor plus the graph object, the standard ggml sizing. On CUDA the tensor data lives in
+// backend buffers (the gallocr arena, the staged constants), never in the context, yet
+// ggml_init mallocs the whole mem_size it is given; on Windows that is committed memory
+// whether or not a page is touched, so a context sized as if the data lived in it (1.5 to
+// 12 GiB per cached graph) held that much commit for nothing.
+size_t no_alloc_graph_ctx_bytes(size_t graph_nodes) {
+    return ggml_tensor_overhead() * graph_nodes + ggml_graph_overhead_custom(graph_nodes, false);
+}
+
 // Column convention throughout: tensors are [features, seq] (ggml ne0 =
 // features), so ggml_norm == LayerNorm over features and ggml_mul_mat(W, X)
 // matches torch X @ W^T with torch weights stored [out, in].
@@ -349,9 +362,12 @@ std::pair<std::vector<float>, std::vector<float>> f5_dit_forward_cfg(
         // objects at ~8 MiB per mel frame (9664 MiB at 1216 frames, 12302 MiB at 1856),
         // so 9 MiB/frame carries ~12% headroom over the measured need; at 8 MiB/frame the
         // pool was exactly full and a longer pass died on GGML_ASSERT(obj_new).
-        const size_t ctx_bytes = std::min<size_t>(
-            std::max<size_t>(1536ULL << 20, static_cast<size_t>(N) * (9ULL << 20)),
-            12288ULL << 20);
+        // On CUDA the context is no_alloc and holds only the headers.
+        const size_t ctx_bytes = is_cuda
+            ? no_alloc_graph_ctx_bytes(kDiTGraphNodes)
+            : std::min<size_t>(
+                  std::max<size_t>(1536ULL << 20, static_cast<size_t>(N) * (9ULL << 20)),
+                  12288ULL << 20);
         gnew->ctx = ggml_init({ctx_bytes, nullptr, is_cuda});
         ggml_context * ctx = gnew->ctx;
         // ---- module-composed batched-CFG graph (B=2) ----
@@ -382,7 +398,7 @@ std::pair<std::vector<float>, std::vector<float>> f5_dit_forward_cfg(
         gnew->cond = io.cond.tensor;
         gnew->text_ids = io.text_ids.tensor;
         gnew->th_t = th_t;
-        gnew->graph = ggml_new_graph_custom(ctx, 262144, false);
+        gnew->graph = ggml_new_graph_custom(ctx, kDiTGraphNodes, false);
         ggml_build_forward_expand(gnew->graph, output);
         core::validate_backend_graph_supported(model.backend, gnew->graph, "f5_dit_cfg");
         if (!is_cuda) {
@@ -554,9 +570,12 @@ std::vector<float> f5_dit_forward(
     auto it = graph_cache->find(cache_key);
     if (it == graph_cache->end()) {
         auto gnew = std::make_unique<DiTGraph>();
-        const size_t ctx_bytes = std::min<size_t>(
-            std::max<size_t>(1536ULL << 20, static_cast<size_t>(N) * (6ULL << 20)),
-            6144ULL << 20);
+        // CPU holds the graph's data in the context; CUDA (no_alloc) only the headers.
+        const size_t ctx_bytes = is_cuda
+            ? no_alloc_graph_ctx_bytes(kDiTGraphNodes)
+            : std::min<size_t>(
+                  std::max<size_t>(1536ULL << 20, static_cast<size_t>(N) * (6ULL << 20)),
+                  6144ULL << 20);
         gnew->ctx = ggml_init({ctx_bytes, nullptr, is_cuda});
         ggml_context * ctx = gnew->ctx;
         // On CUDA the ctx is no_alloc: leaf tensors get device storage after
@@ -595,7 +614,7 @@ std::vector<float> f5_dit_forward(
     gnew->text_ids = io.text_ids.tensor;
     gnew->th_t = io.time_input.tensor;
     gnew->output = output;
-        gnew->graph = ggml_new_graph_custom(ctx, 262144, false);
+        gnew->graph = ggml_new_graph_custom(ctx, kDiTGraphNodes, false);
         ggml_build_forward_expand(gnew->graph, output);
         for (ggml_tensor * tap :
              {tap_text_embed, tap_text_convnext, tap_text_padded, tap_input_embed,

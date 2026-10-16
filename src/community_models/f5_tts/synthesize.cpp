@@ -708,7 +708,14 @@ std::vector<float> vocos_decode_gpu(
     auto it = cache->find(ckey);
     if (it == cache->end()) {
         auto g = std::make_unique<VocosGraph>();
-        const size_t ctx_bytes = 256ULL << 20;
+        // CPU holds the graph's data in the context. On CUDA it is no_alloc (the tensors
+        // land in io_buffer), so it holds only the tensor headers and the graph: ggml_init
+        // mallocs whatever it is given, and on Windows that is committed memory.
+        constexpr size_t kVocosGraphNodes = 8192;
+        const size_t ctx_bytes = is_cuda
+            ? ggml_tensor_overhead() * kVocosGraphNodes
+                  + ggml_graph_overhead_custom(kVocosGraphNodes, false)
+            : 256ULL << 20;
         g->ctx = ggml_init({ctx_bytes, nullptr, is_cuda});
         ggml_context * ctx = g->ctx;
         std::vector<std::pair<ggml_tensor *, std::vector<uint8_t>>> pending;
@@ -795,7 +802,7 @@ std::vector<float> vocos_decode_gpu(
 
         g->mel = mel;
         g->spec = spec;
-        g->graph = ggml_new_graph_custom(ctx, 8192, false);
+        g->graph = ggml_new_graph_custom(ctx, kVocosGraphNodes, false);
         ggml_build_forward_expand(g->graph, spec);
         core::validate_backend_graph_supported(backend, g->graph, "f5_vocos");
         if (is_cuda) {
