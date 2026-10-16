@@ -618,6 +618,10 @@ class PredictorPreTailGraphRuntime {
         core::TensorValue speed = {};
         core::TensorValue durations_scaled = {};
         core::TensorValue duration_features_tc = {};
+        // The LSTMs' zero initial states: graph inputs the allocator reuses once their last
+        // consumer has run, so they are written again before every compute — written only at
+        // build, every compute after the first started its LSTMs from leftover activations.
+        std::vector<ggml_tensor *> zero_state_inputs;
 
         DurationSession(const KittenWeights &weights_in, ggml_backend_t backend_in, int64_t token_count_in,
                         bool use_valid_mask_in, int n_threads_in, KittenPredictorGraphConfig graph_config_in)
@@ -633,8 +637,6 @@ class PredictorPreTailGraphRuntime {
             }
 
             try {
-                std::vector<ggml_tensor *> zero_state_inputs;
-
                 core::ModuleBuildContext build_ctx = {};
                 build_ctx.ggml = ctx;
                 build_ctx.module_instance_name = "kitten_predictor_pretail";
@@ -799,6 +801,7 @@ class PredictorPreTailGraphRuntime {
             }
             const double input_upload_ms = measure_ms([&]() {
                 core::write_tensor_f32(plbert_hidden_tc, plbert_hidden_tc_host);
+                upload_zero_state_inputs(zero_state_inputs);
                 if (use_valid_mask) {
                     std::vector<float> valid_mask(static_cast<size_t>(token_count), 0.0f);
                     std::fill(valid_mask.begin(), valid_mask.begin() + valid_token_count, 1.0f);
@@ -849,6 +852,10 @@ class PredictorPreTailGraphRuntime {
         core::TensorValue valid_mask_tc = {};
         core::TensorValue valid_mask_bct = {};
         core::TensorValue text_features_ct = {};
+        // The LSTMs' zero initial states: graph inputs the allocator reuses once their last
+        // consumer has run, so they are written again before every compute — written only at
+        // build, every compute after the first started its LSTMs from leftover activations.
+        std::vector<ggml_tensor *> zero_state_inputs;
 
         TextSession(const KittenWeights &weights_in, ggml_backend_t backend_in, int64_t token_count_in,
                     bool use_valid_mask_in, int n_threads_in, KittenPredictorGraphConfig graph_config_in)
@@ -864,8 +871,6 @@ class PredictorPreTailGraphRuntime {
             }
 
             try {
-                std::vector<ggml_tensor *> zero_state_inputs;
-
                 core::ModuleBuildContext build_ctx = {};
                 build_ctx.ggml = ctx;
                 build_ctx.module_instance_name = "kitten_predictor_text";
@@ -996,6 +1001,7 @@ class PredictorPreTailGraphRuntime {
             }
             const double input_upload_ms = measure_ms([&]() {
                 core::write_tensor_i32(input_ids, input_ids_host);
+                upload_zero_state_inputs(zero_state_inputs);
                 if (use_valid_mask) {
                     std::vector<float> valid_mask(static_cast<size_t>(token_count), 0.0f);
                     std::fill(valid_mask.begin(), valid_mask.begin() + valid_token_count, 1.0f);
