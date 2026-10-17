@@ -64,6 +64,28 @@ audiocpp_cli --task tts --family qwen3_tts --model models/Qwen3-TTS-12Hz-1.7B-Cu
 | `--text-chunk-size` | integer chars | `8192` | Long-form text chunk size. |
 | `--max-tokens` | positive integer | checkpoint generation config (`2048` if absent) | Maximum generated speech tokens per chunk. |
 
+### CustomVoice with a copied voice
+
+CustomVoice ships no speaker encoder, so on its own it speaks only its packaged
+speakers. With `--session-option qwen3_tts.base_model_path=<Base model>`, naming
+the Base model of the same size, a CustomVoice session also takes a reference
+clip: the Base model's speaker encoder makes the clip's x-vector, which goes in
+the speaker slot, and the instruction still applies. The instruction rows come
+first, as Qwen's model-level `generate()` places them. Pass `--voice-ref` with
+either `--reference-text` (ICL: the clip's own speech frames in the prompt too)
+or `--request-option x_vector_only_mode=true` (the x-vector alone). Only the
+Base speaker encoder is read from that file; the clip's speech frames come from
+the CustomVoice model's own speech tokenizer.
+
+```bash
+audiocpp_cli --task tts --family qwen3_tts --model models/Qwen3-TTS-12Hz-1.7B-CustomVoice --session-option qwen3_tts.base_model_path=models/Qwen3-TTS-12Hz-1.7B-Base --backend cuda --text "Hello from a copied voice." --voice-ref assets/resources/b.wav --request-option x_vector_only_mode=true --instruct "Very happy." --out out.wav
+```
+
+A request with both a packaged speaker and a reference clip is refused, and so
+is a clip sent to a session without the option. Qwen has not trained
+CustomVoice on copied voices; how strongly the instruction acts on one is a
+matter for listening.
+
 ## Qwen3 TTS VoiceDesign
 
 Qwen3 VoiceDesign creates a voice from an instruction. It does not require a speaker reference WAV.
@@ -143,7 +165,7 @@ These sampling controls are shared by the Qwen3 TTS Base, VoiceDesign, and Custo
 | `subtalker_temperature` | float | `0.9` | Must be > 0 when `subtalker_do_sample=true`; ignored when false. |
 | `subtalker_top_k` | integer | `50` | Subtalker top-k. |
 | `subtalker_top_p` | float | `1.0` | Subtalker top-p. |
-| `x_vector_only_mode` | bool | `false` | Base voice cloning using only the reference speaker embedding, without ICL reference codec prompting. |
+| `x_vector_only_mode` | bool | `false` | Base voice cloning, or CustomVoice cloning with `qwen3_tts.base_model_path`, using only the reference speaker embedding, without ICL reference codec prompting. |
 | `stream_frames_per_event` | positive integer | `12` | Codec frames per fixed event, or the maximum for growing events. Smaller values reduce chunk latency but increase decoding overhead. Ignored offline. |
 | `stream_chunk_policy` | `grow` or `fixed` | `grow` | Grow from one frame to the configured maximum, or emit fixed-size chunks. Ignored offline. |
 
@@ -157,6 +179,7 @@ constant-context sizes are in MiB.
 | `qwen3_tts.mem_saver` | bool | `false` | Release the talker cached-step graph after each request. Voice-prompt, prefill, code-predictor, and speech-decoder caches remain reusable. |
 | `qwen3_tts.perf_mode` | `off`, `flash_attention` | `off` | Opt-in attention optimization; `flash_attention` requires Q8_0 weights in both the talker and speech tokenizer. |
 | `qwen3_tts.voice_prompt_cache_slots` | nonnegative integer | `1` | Cached voice-clone prompts; `0` disables prompt caching. |
+| `qwen3_tts.base_model_path` | path | unset | CustomVoice only: the Base model of the same size, whose speaker encoder lets the session copy a voice from a reference clip (see [CustomVoice with a copied voice](#customvoice-with-a-copied-voice)). Refused on Base and VoiceDesign, and when the file is not a Base model of the same size. |
 | `qwen3_tts.weight_type` | `native`, `f32`, `f16`, `bf16`, `q8_0` | `native` | Talker weight storage fallback. |
 | `qwen3_tts.talker_weight_type` | `native`, `f32`, `f16`, `bf16`, `q8_0` | inherits `weight_type` | Explicit talker weight storage override. |
 | `qwen3_tts.speech_encoder_weight_type` | `native`, `f32`, `f16`, `bf16`, `q8_0` | `native` | Reference speech encoder matmul weight storage. |

@@ -638,6 +638,17 @@ PromptEmbeddingState build_prompt_state(
 
     PromptEmbeddingState state;
     state.tts_pad = tts_pad;
+    // Instruction rows come first, before the role, as Qwen's model-level generate() places them
+    // for any prompt (modeling_qwen3_tts.py @022e286b :2075-2079). Only a CustomVoice clone has them.
+    if (!prefill.instruct_ids.empty()) {
+        append_rows(
+            state.prompt,
+            text_project(
+                lookup_rows(weights.text_embedding, config.text_hidden_size, prefill.instruct_ids),
+                static_cast<int64_t>(prefill.instruct_ids.size()),
+                weights,
+                config, projection));
+    }
     const std::vector<int32_t> role_ids(prefill.input_ids.begin(), prefill.input_ids.begin() + 3);
     append_rows(state.prompt, text_project(lookup_rows(weights.text_embedding, config.text_hidden_size, role_ids), 3, weights, config, projection));
 
@@ -1003,6 +1014,12 @@ private:
     std::unique_ptr<core::ConstantTensorCache> talker_constants_;
     std::unique_ptr<core::ConstantTensorCache> code_predictor_constants_;
 };
+
+std::vector<float> qwen3_talker_prefill_embeddings(
+    const Qwen3TalkerWeightsRuntime & weights,
+    const Qwen3TalkerPrefill & prefill) {
+    return build_prompt_state(prefill, weights.assets().config, weights.weights(), nullptr).prompt;
+}
 
 class TalkerPrefillGraph {
 public:

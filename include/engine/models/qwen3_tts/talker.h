@@ -45,6 +45,12 @@ void validate_qwen3_talker_voice_clone_prefill(
 class Qwen3TalkerWeightsRuntime;
 class Qwen3TalkerStepRuntime;
 
+// The prompt embeddings an offline generate() feeds the talker for this prefill: rows of
+// hidden_size floats. Exposed for tests of the prompt layout.
+std::vector<float> qwen3_talker_prefill_embeddings(
+    const Qwen3TalkerWeightsRuntime & weights,
+    const Qwen3TalkerPrefill & prefill);
+
 class Qwen3TalkerStepRuntime {
 public:
     class Impl;
