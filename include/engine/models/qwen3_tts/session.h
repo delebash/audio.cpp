@@ -73,6 +73,9 @@ private:
 
     runtime::TaskSpec task_;
     std::shared_ptr<const Qwen3TTSAssets> assets_;
+    // CustomVoice only, with qwen3_tts.base_model_path: the Base model whose speaker encoder
+    // makes a clip's x-vector.
+    std::shared_ptr<const Qwen3TTSAssets> base_assets_;
     size_t talker_graph_arena_bytes_ = 32ull * 1024ull * 1024ull;
     size_t speech_encoder_graph_arena_bytes_ = 32ull * 1024ull * 1024ull;
     size_t speech_decoder_graph_arena_bytes_ = 32ull * 1024ull * 1024ull;

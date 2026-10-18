@@ -159,6 +159,69 @@ std::size_t voice_prompt_cache_slots_from_options(const runtime::SessionOptions 
     return static_cast<std::size_t>(slots);
 }
 
+// CustomVoice has no speaker encoder. With qwen3_tts.base_model_path naming the Base model of the
+// same size, its session copies a voice from a clip with Base's own ECAPA encoder: the x-vector
+// goes in the speaker slot, as Qwen's model-level generate() places a clone's (the option follows
+// upstream's miotts.codec_model_path, a session option naming a second model file).
+std::shared_ptr<const Qwen3TTSAssets> custom_voice_base_assets_from_options(
+    const runtime::SessionOptions & options,
+    const Qwen3TTSConfig & config) {
+    const auto value = runtime::find_option(options.options, {"qwen3_tts.base_model_path"});
+    if (!value.has_value()) {
+        return nullptr;
+    }
+    if (config.variant != Qwen3TTSVariant::CustomVoice) {
+        throw std::runtime_error("qwen3_tts.base_model_path is only for a Qwen3 CustomVoice model");
+    }
+    auto base = load_qwen3_tts_assets(std::filesystem::path(*value));
+    if (base->config.variant != Qwen3TTSVariant::Base || !base->config.has_speaker_encoder) {
+        throw std::runtime_error("qwen3_tts.base_model_path must name a Qwen3 Base model: " + *value);
+    }
+    if (base->config.tts_model_size != config.tts_model_size) {
+        throw std::runtime_error(
+            "qwen3_tts.base_model_path names a " + base->config.tts_model_size +
+            " Base model; this CustomVoice model is " + config.tts_model_size);
+    }
+    if (base->config.speaker_encoder.embedding_dim != config.talker.hidden_size) {
+        throw std::runtime_error(
+            "qwen3_tts.base_model_path: the Base speaker embedding size " +
+            std::to_string(base->config.speaker_encoder.embedding_dim) +
+            " does not match the talker's hidden size " + std::to_string(config.talker.hidden_size));
+    }
+    return base;
+}
+
+std::optional<Qwen3VoiceCloneInput> voice_clone_from_request(const runtime::TaskRequest & request) {
+    const runtime::AudioBuffer * reference_audio = nullptr;
+    if (request.voice.has_value()
+        && request.voice->speaker.has_value()
+        && request.voice->speaker->audio.has_value()) {
+        reference_audio = &*request.voice->speaker->audio;
+    } else if (request.audio_input.has_value()) {
+        reference_audio = &*request.audio_input;
+    }
+    if (reference_audio == nullptr) {
+        return std::nullopt;
+    }
+    Qwen3VoiceCloneInput voice_clone;
+    voice_clone.reference_audio = *reference_audio;
+    if (const auto reference_text = runtime::find_option(
+            request.options,
+            {"reference_text"})) {
+        voice_clone.reference_text = *reference_text;
+    }
+    bool x_vector_only = false;
+    if (const auto value = runtime::find_option(
+            request.options,
+            {"x_vector_only_mode"})) {
+        x_vector_only = runtime::parse_bool_option(*value, "x_vector_only_mode");
+    }
+    voice_clone.mode = x_vector_only
+        ? Qwen3VoiceCloneMode::SpeakerEmbeddingOnly
+        : Qwen3VoiceCloneMode::Icl;
+    return voice_clone;
+}
+
 void validate_talker_weight_storage(engine::assets::TensorStorageType storage_type) {
     if (storage_type == engine::assets::TensorStorageType::Native ||
         storage_type == engine::assets::TensorStorageType::F32 ||
@@ -325,10 +388,12 @@ Qwen3TTSSession::Qwen3TTSSession(
             key != "qwen3_tts.voice_prompt_cache_slots" &&
             key != "qwen3_tts.exec_plan" &&
             key != "qwen3_tts.perf_mode" &&
-            key != "qwen3_tts.mem_saver") {
+            key != "qwen3_tts.mem_saver" &&
+            key != "qwen3_tts.base_model_path") {
             throw std::runtime_error("unknown Qwen3 TTS session option: " + key);
         }
     }
+    base_assets_ = custom_voice_base_assets_from_options(options, assets_->config);
     talker_weights_ = talker_.create_weights_runtime(
         assets_,
         options.backend.type,
@@ -365,7 +430,9 @@ Qwen3TTSSession::Qwen3TTSSession(
     if (assets_->config.variant == Qwen3TTSVariant::CustomVoice && task_.task != runtime::VoiceTaskKind::Tts) {
         throw std::runtime_error("Qwen3 custom voice model only supports the Tts task");
     }
-    if (assets_->config.variant == Qwen3TTSVariant::Base) {
+    if (assets_->config.variant == Qwen3TTSVariant::Base || base_assets_ != nullptr) {
+        // A CustomVoice clone's reference frames come from its own speech tokenizer; its x-vector
+        // from the Base model's speaker encoder.
         speech_encoder_ = std::make_unique<Qwen3SpeechTokenizerEncoderRuntime>(
             assets_,
             voice_prompt_context_,
@@ -374,7 +441,7 @@ Qwen3TTSSession::Qwen3TTSSession(
             conv_weight_storage_type_,
             perf_mode_);
         speaker_encoder_ = std::make_unique<Qwen3TTSEcapaTdnnEncoderRuntime>(
-            assets_,
+            base_assets_ != nullptr ? base_assets_ : assets_,
             voice_prompt_context_,
             speaker_encoder_graph_arena_bytes_,
             conv_weight_storage_type_);
@@ -515,7 +582,10 @@ runtime::TaskResult Qwen3TTSSession::synthesize(const runtime::TaskRequest & req
         debug::timing_log_scalar("session.wall_ms", engine::debug::elapsed_ms(wall_start, Clock::now()));
         return result;
     }
-    if (assets_->config.variant == Qwen3TTSVariant::CustomVoice) {
+    const Qwen3TTSRequest first_request = make_request(chunk_requests.front());
+    // A CustomVoice request with a reference clip takes the voice-clone path below, its
+    // instruction rows placed first.
+    if (assets_->config.variant == Qwen3TTSVariant::CustomVoice && !first_request.voice_clone.has_value()) {
         Qwen3TTSCustomVoicePromptBuilder prompt_builder(
             text_tokenizer_,
             assets_->config.talker.max_position_embeddings,
@@ -542,7 +612,6 @@ runtime::TaskResult Qwen3TTSSession::synthesize(const runtime::TaskRequest & req
         debug::timing_log_scalar("session.wall_ms", engine::debug::elapsed_ms(wall_start, Clock::now()));
         return result;
     }
-    const Qwen3TTSRequest first_request = make_request(chunk_requests.front());
     if (!first_request.voice_clone.has_value()) {
         throw std::runtime_error("Qwen3 base TTS requires voice clone reference audio");
     }
@@ -646,33 +715,7 @@ Qwen3TTSRequest Qwen3TTSSession::make_request(const runtime::TaskRequest & reque
     }
     out.generation = qwen3_tts_generation_options_from_request(request, assets_->config);
     if (assets_->config.variant == Qwen3TTSVariant::Base) {
-        const runtime::AudioBuffer * reference_audio = nullptr;
-        if (request.voice.has_value()
-            && request.voice->speaker.has_value()
-            && request.voice->speaker->audio.has_value()) {
-            reference_audio = &*request.voice->speaker->audio;
-        } else if (request.audio_input.has_value()) {
-            reference_audio = &*request.audio_input;
-        }
-        if (reference_audio != nullptr) {
-            Qwen3VoiceCloneInput voice_clone;
-            voice_clone.reference_audio = *reference_audio;
-            if (const auto reference_text = runtime::find_option(
-                    request.options,
-                    {"reference_text"})) {
-                voice_clone.reference_text = *reference_text;
-            }
-            bool x_vector_only = false;
-            if (const auto value = runtime::find_option(
-                    request.options,
-                    {"x_vector_only_mode"})) {
-                x_vector_only = runtime::parse_bool_option(*value, "x_vector_only_mode");
-            }
-            voice_clone.mode = x_vector_only
-                ? Qwen3VoiceCloneMode::SpeakerEmbeddingOnly
-                : Qwen3VoiceCloneMode::Icl;
-            out.voice_clone = std::move(voice_clone);
-        }
+        out.voice_clone = voice_clone_from_request(request);
     } else if (assets_->config.variant == Qwen3TTSVariant::VoiceDesign) {
         Qwen3VoiceDesignInput voice_design;
         voice_design.instruct = runtime::find_option(
@@ -704,6 +747,18 @@ Qwen3TTSRequest Qwen3TTSSession::make_request(const runtime::TaskRequest & reque
             const auto tag = request.voice->style->tags.find("instruct");
             if (tag != request.voice->style->tags.end()) {
                 custom_voice.instruct = tag->second;
+            }
+        }
+        out.voice_clone = voice_clone_from_request(request);
+        if (out.voice_clone.has_value()) {
+            if (base_assets_ == nullptr) {
+                throw std::runtime_error(
+                    "Qwen3 CustomVoice copies a voice from a reference clip only with the session option "
+                    "qwen3_tts.base_model_path naming the Base model of the same size");
+            }
+            if (!custom_voice.speaker.empty()) {
+                throw std::runtime_error(
+                    "Qwen3 CustomVoice takes a preset speaker or a reference clip, not both: " + custom_voice.speaker);
             }
         }
         out.custom_voice = std::move(custom_voice);

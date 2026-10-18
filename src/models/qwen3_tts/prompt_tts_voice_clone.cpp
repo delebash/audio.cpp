@@ -51,6 +51,12 @@ Qwen3TalkerPrefill Qwen3TTSVoiceClonePromptBuilder::build_prefill(
     prefill.prompt_mode = Qwen3TalkerPromptMode::VoiceClone;
     prefill.input_ids = tokenizer_.encode(tokenizer_.build_assistant_prompt(request.text));
     require_text_token_limit(prefill.input_ids.size(), text_token_limit_, "text");
+    // A CustomVoice clone (qwen3_tts.base_model_path) also takes its instruction; Base requests
+    // carry no custom_voice input.
+    if (request.custom_voice.has_value() && !request.custom_voice->instruct.empty()) {
+        prefill.instruct_ids = tokenizer_.encode(tokenizer_.build_instruct_prompt(request.custom_voice->instruct));
+        require_text_token_limit(prefill.instruct_ids.size(), text_token_limit_, "instruction");
+    }
     prefill.reference_ids = prompt.reference_text_ids;
     prefill.reference_codes = prompt.reference_codes;
     prefill.speaker_embedding = prompt.speaker_embedding;

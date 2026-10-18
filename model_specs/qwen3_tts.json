@@ -151,20 +151,20 @@
       {
         "name": "reference_text",
         "type": "string",
-        "description": "Transcript matching the reference audio for voice cloning; required unless x_vector_only_mode=true.",
+        "description": "Transcript matching the reference audio for Base voice cloning, or CustomVoice cloning with qwen3_tts.base_model_path; required unless x_vector_only_mode=true.",
         "required": false
       },
       {
         "name": "x_vector_only_mode",
         "type": "bool",
-        "description": "Use only the speaker embedding for voice cloning instead of ICL reference codec prompting; default false.",
+        "description": "Use only the speaker embedding for Base voice cloning, or CustomVoice cloning with qwen3_tts.base_model_path, instead of ICL reference codec prompting; default false.",
         "required": false,
         "default": false
       },
       {
         "name": "instruct",
         "type": "string",
-        "description": "Optional natural-language voice or style instruction for VoiceDesign and CustomVoice variants; empty instructions are accepted.",
+        "description": "Optional natural-language voice or style instruction for VoiceDesign and CustomVoice variants, including a CustomVoice clone; empty instructions are accepted.",
         "required": false
       },
       {
@@ -216,6 +216,12 @@
         "required": false,
         "min": 0,
         "default": 1
+      },
+      {
+        "name": "base_model_path",
+        "type": "path",
+        "description": "CustomVoice only: the Qwen3 Base model of the same size, whose speaker encoder lets this session copy a voice from a reference clip and still take instruct.",
+        "required": false
       },
       {
         "name": "weight_type",

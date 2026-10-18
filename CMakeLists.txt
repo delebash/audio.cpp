@@ -3293,6 +3293,15 @@ if (ENGINE_BUILD_TESTS OR ENGINE_BUILD_EXTENDED_TESTS OR ENGINE_BUILD_MODEL_TEST
         endif()
     endif()
 
+    if (qwen3_tts IN_LIST AUDIOCPP_LINKED_MODELS)
+        # Needs the real GGUFs (QWEN3_TTS_CV_GGUF, QWEN3_TTS_BASE_GGUF); skips without them.
+        add_engine_unittest(qwen3_tts_customvoice_clone_test tests/qwen3_tts/customvoice_clone_test.cpp)
+        target_compile_definitions(qwen3_tts_customvoice_clone_test PRIVATE
+            AUDIOCPP_TEST_RESOURCES="${CMAKE_CURRENT_SOURCE_DIR}/assets/resources")
+        add_test(NAME qwen3_tts_customvoice_clone_test COMMAND qwen3_tts_customvoice_clone_test)
+        set_tests_properties(qwen3_tts_customvoice_clone_test PROPERTIES SKIP_RETURN_CODE 77)
+    endif()
+
     add_engine_unittest(shared_weight_cache_test tests/unittests/test_shared_weight_cache.cpp)
     add_test(NAME shared_weight_cache_test COMMAND shared_weight_cache_test)
     add_engine_unittest(cpu_extra_buffers_test tests/unittests/test_cpu_extra_buffers.cpp)
