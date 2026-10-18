@@ -31,7 +31,6 @@ namespace engine::models::f5_tts {
 namespace {
 
 namespace core = engine::core;
-namespace modules = engine::modules;
 
 // Node capacity of the DiT graphs (plain and batched-CFG).
 constexpr size_t kDiTGraphNodes = 262144;
@@ -51,7 +50,6 @@ size_t no_alloc_graph_ctx_bytes(size_t graph_nodes) {
 // matches torch X @ W^T with torch weights stored [out, in].
 
 struct LoadedModel {
-    F5Architecture arch;
     ggml_backend_t backend = nullptr;            // backend owning the weight store
     core::BackendType backend_type = core::BackendType::Cpu;
 };
@@ -190,11 +188,8 @@ const LoadedModel & load_model_once(const std::string & path, const F5ComputeDev
         core::set_backend_threads(owner->value, std::max(1, dev.threads));
     }
     LoadedModel model;
-    model.arch = F5Architecture{};
     model.backend = owner->value;
     model.backend_type = type;
-    // The weights are load_dit_weights_once's. This used to load the whole DiT a
-    // second time (F5Weights, in its own store) that no graph ever read.
     owners.push_back(std::move(owner));
     return cache->emplace(key, std::move(model)).first->second;
 }

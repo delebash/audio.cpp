@@ -39,6 +39,7 @@ Nano clone a voice from a package converted from Resemble's checkpoint. -->
 | OmniVoice | `omnivoice` | `tts`, `clon`, `vdes` | [OmniVoice](#omnivoice), [full guide](models/omnivoice.md) |
 | OuteTTS | `outetts` | `tts`, `clon` | [OuteTTS](#outetts) |
 | Piper TTS | `piper_tts` | `tts` | [Piper TTS](models/piper_tts.md) |
+| Plapre 3 | `plapre` | `tts`, `clon` | [Plapre 3](models/plapre.md) |
 | PocketTTS | `pocket_tts` | `tts`, `clon` | [PocketTTS](#pockettts) |
 | Qwen3 TTS | `qwen3_tts` | `tts`, `clon`, `vdes` | [Qwen3 TTS](#qwen3-tts) |
 | sanoTTS voice family | `sanotts` | `tts` | [sanoTTS](#sanotts) |

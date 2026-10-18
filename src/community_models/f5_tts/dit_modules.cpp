@@ -257,7 +257,8 @@ void const_stage_upload(std::vector<ConstStage> * stage, ggml_backend_t backend)
     }
 }
 void const_stage_end(std::vector<ConstStage> * stage) {
-    // detach only; the graph that built the stage owns it (const_stage_free).
+    // detach only; ownership of the staged constants was handed to the graph that
+    // built them (const_stage_free runs with that graph's destructor).
     t_const_stage = nullptr;
     (void)stage;
 }
@@ -274,6 +275,7 @@ void const_stage_free(std::vector<ConstStage> * stage) {
     }
     delete stage;
 }
+
 
 
 F5DiTGraphBuild build_dit_modules_graph(
