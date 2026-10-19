@@ -66,6 +66,7 @@ runtime::ModelCliInterface cli(const Qwen3TTSAssets &) {
         {"top_k", "int", "Main codec top-k sampling limit; default 50, 0 disables top-k filtering.", false, "50", "0"},
         {"top_p", "float", "Main codec nucleus sampling limit; default 1.0.", false, "1", "0", "1"},
         {"repetition_penalty", "float", "Main codec repetition penalty; must be > 0, default 1.05.", false, "1.05", "0"},
+        {"guidance_scale", "float", "Instruct guidance for VoiceDesign and CustomVoice, including a CustomVoice clone: each step also runs the same prompt without the instruct, and the main codec logits become untold + scale * (told - untold); default 1.0 = off. Other values cost a second talker pass per step; ignored without an instruct.", false, "1", "0"},
         {"subtalker_do_sample", "bool", "Enable subtalker sampling for the remaining audio codebooks instead of greedy decoding; default true.", false, "true"},
         {"subtalker_temperature", "float", "Subtalker sampling temperature; must be > 0 when subtalker_do_sample=true. Ignored when subtalker_do_sample=false; default 0.9.", false, "0.9", "0"},
         {"subtalker_top_k", "int", "Subtalker top-k sampling limit; default 50, 0 disables top-k filtering.", false, "50", "0"},

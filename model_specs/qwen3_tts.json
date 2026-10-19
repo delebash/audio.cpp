@@ -109,6 +109,14 @@
         "default": 1.05
       },
       {
+        "name": "guidance_scale",
+        "type": "float",
+        "description": "Instruct guidance for VoiceDesign and CustomVoice, including a CustomVoice clone: each step also runs the same prompt without the instruct, and the main codec logits become untold + scale * (told - untold); default 1.0 = off. Other values cost a second talker pass per step; ignored without an instruct.",
+        "required": false,
+        "min": 0,
+        "default": 1
+      },
+      {
         "name": "subtalker_do_sample",
         "type": "bool",
         "description": "Enable subtalker sampling for the remaining audio codebooks instead of greedy decoding; default true.",

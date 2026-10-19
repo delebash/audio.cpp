@@ -160,6 +160,7 @@ These sampling controls are shared by the Qwen3 TTS Base, VoiceDesign, and Custo
 
 | Option | Values | Default | Meaning |
 |---|---|---:|---|
+| `guidance_scale` | float >= 0 | `1.0` | Instruct guidance for VoiceDesign and CustomVoice (a CustomVoice clone included). Each step also runs the same prompt without the instruct, fed the same codes, and the main codec logits become `untold + scale * (told - untold)` before the repetition penalty, as BreezeTTS's classifier-free guidance does. `1.0` is off; other values cost a second talker pass per step and its KV cache. The code predictor follows the told pass. Ignored when the request has no instruct. |
 | `subtalker_do_sample` | bool | `true` | Enable subtalker sampling for the remaining audio codebooks. |
 | `voice_id` | packaged speaker name | unset | CustomVoice preset selection. Legacy `speaker` remains accepted. An explicit request option takes precedence over the structured voice's cached id. |
 | `subtalker_temperature` | float | `0.9` | Must be > 0 when `subtalker_do_sample=true`; ignored when false. |

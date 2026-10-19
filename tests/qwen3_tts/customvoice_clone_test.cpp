@@ -1,5 +1,6 @@
 // Qwen3 CustomVoice speaking a copied voice (session option qwen3_tts.base_model_path): the prompt
-// layout, the option's refusals, both clone modes end to end, and the preset path unchanged.
+// layout, the option's refusals, both clone modes end to end, and the preset path unchanged; and
+// instruct guidance (request option guidance_scale) on a clone.
 //
 // Needs the real GGUFs, named by environment variables: QWEN3_TTS_CV_GGUF (a CustomVoice model)
 // and QWEN3_TTS_BASE_GGUF (the Base model of the same size); QWEN3_TTS_CV_OTHER_SIZE_GGUF (a
@@ -258,6 +259,34 @@ int main() {
                         " clone renders 24 kHz audio");
             }
         }
+
+        // (f) Instruct guidance (request option guidance_scale): 1.0 is today's take, sample for
+        // sample; another scale renders and differs; without an instruct it changes nothing.
+        auto guided = [&](bool told, const std::optional<std::string> & scale) {
+            auto request = take_request(9);
+            request.options["max_tokens"] = "12";
+            add_clip(request, clip, std::nullopt);
+            if (told) {
+                request.options["instruct"] = kInstruct;
+            }
+            if (scale.has_value()) {
+                request.options["guidance_scale"] = *scale;
+            }
+            return run(*session, request).audio_output->samples;
+        };
+        const auto told_today = guided(true, std::nullopt);
+        check(guided(true, "1") == told_today, "(f) guidance_scale 1 renders today's told take, sample for sample");
+        const auto told_guided = guided(true, "2.5");
+        check(!told_guided.empty() && told_guided != told_today, "(f) guidance_scale 2.5 renders a told take that differs");
+        check(guided(false, "2.5") == guided(false, std::nullopt), "(f) without an instruct, guidance_scale changes nothing");
+        auto preset_guided = preset;
+        preset_guided.options["guidance_scale"] = "2.5";
+        check(run(*session, preset_guided).audio_output.has_value(), "(f) a told preset request renders with guidance_scale 2.5");
+        auto negative = take_request(9);
+        negative.options["voice_id"] = "ryan";
+        negative.options["guidance_scale"] = "-1";
+        check(throws_with([&] { run(*session, negative); }, "guidance_scale must be non-negative"),
+            "(f) a negative guidance_scale is refused");
 
         auto both = take_request(7);
         add_clip(both, clip, std::nullopt);

@@ -1908,6 +1908,62 @@ public:
             }
             cached_step_capacity = cached_step_graph_->cache_steps();
         };
+        // Instruct guidance (request option guidance_scale): the same prompt without its instruct
+        // rows runs beside the told one and is fed the same codes; each step's main codec logits
+        // become untold + scale * (told - untold) before the processors, as BreezeTTS's
+        // classifier-free guidance mixes them (breeze_tts/generator.cpp). The code predictor
+        // follows the told pass. Off at 1.0, and when the request has no instruct.
+        const bool use_guidance = options.guidance_scale != 1.0F && !request.instruct_ids.empty();
+        std::optional<PromptEmbeddingState> uncond_state;
+        Qwen3TalkerPrefillResult uncond_current;
+        int64_t uncond_prompt_steps = 0;
+        int64_t uncond_trailing_rows = 0;
+        double guidance_ms = 0.0;
+        std::optional<runtime::TransformerKVState> uncond_pending_state;
+        auto ensure_uncond_capacity = [&](int64_t required_capacity) {
+            if (uncond_step_graph_ != nullptr && uncond_step_graph_->can_run(*weights_, required_capacity)) {
+                return;
+            }
+            const int64_t old_generated_capacity = uncond_step_graph_ == nullptr
+                ? 0
+                : std::max<int64_t>(1, uncond_step_graph_->cache_steps() - uncond_prompt_steps);
+            const int64_t next_generated_capacity = std::min<int64_t>(
+                max_new_tokens,
+                std::max<int64_t>(
+                    std::max<int64_t>(1, required_capacity - uncond_prompt_steps),
+                    old_generated_capacity > 0 ? old_generated_capacity * 2 : kInitialGeneratedStepCacheFrames));
+            if (uncond_step_graph_ != nullptr) {
+                uncond_pending_state = uncond_step_graph_->export_state();
+            }
+            uncond_step_graph_.reset();
+            uncond_step_graph_ = std::make_unique<TalkerCachedStepGraph>(
+                weights_,
+                uncond_prompt_steps + next_generated_capacity);
+            uncond_step_graph_->import_prefill_state(*uncond_pending_state);
+            uncond_pending_state.reset();
+        };
+        if (use_guidance) {
+            const auto guidance_start = Clock::now();
+            auto untold = request;
+            untold.instruct_ids.clear();
+            uncond_state = build_prompt_state(
+                untold, weights_->assets().config, weights_->weights(), on_frame ? text_projection_.get() : nullptr);
+            uncond_prompt_steps = static_cast<int64_t>(uncond_state->prompt.size()) / config.hidden_size;
+            if (uncond_prompt_steps <= 0 || uncond_prompt_steps > prompt_capacity_) {
+                throw std::runtime_error("Qwen3 talker guidance prompt exceeds step runtime capacity");
+            }
+            uncond_trailing_rows = static_cast<int64_t>(uncond_state->trailing_text.size()) / config.hidden_size;
+            if (uncond_graph_ == nullptr || !uncond_graph_->matches(*weights_, uncond_prompt_steps)) {
+                uncond_graph_.reset();
+                uncond_graph_ = std::make_unique<TalkerPrefillGraph>(weights_, uncond_prompt_steps);
+            }
+            auto uncond_prefill = uncond_graph_->run_with_state(uncond_state->prompt);
+            uncond_current = std::move(uncond_prefill.result);
+            uncond_step_graph_.reset();
+            uncond_pending_state = std::move(uncond_prefill.state);
+            ensure_uncond_capacity(uncond_prompt_steps + 1);
+            guidance_ms += engine::debug::elapsed_ms(guidance_start, Clock::now());
+        }
         Qwen3TalkerCodes out;
         out.generated_codes.code_groups = config.num_code_groups;
         out.decoder_input_codes.code_groups = config.num_code_groups;
@@ -1924,6 +1980,15 @@ public:
         for (int64_t step = 0; step < max_new_tokens; ++step) {
             auto logits = current.logits.values;
             const auto processor_start = Clock::now();
+            if (use_guidance) {
+                const auto & untold_logits = uncond_current.logits.values;
+                if (untold_logits.size() != logits.size()) {
+                    throw std::runtime_error("Qwen3 talker guidance logits shape mismatch");
+                }
+                for (size_t i = 0; i < logits.size(); ++i) {
+                    logits[i] = untold_logits[i] + options.guidance_scale * (logits[i] - untold_logits[i]);
+                }
+            }
             apply_main_talker_processors(logits, config, generated_first_codes, step, repetition_penalty);
             const int32_t first_code = options.do_sample
                 ? sample_index(
@@ -1978,6 +2043,16 @@ public:
                 cached_step_timing.graph_compute_ms += step_timing.graph_compute_ms;
                 cached_step_timing.output_read_ms += step_timing.output_read_ms;
                 cached_step_timing.kv_copy_ms += step_timing.kv_copy_ms;
+                if (use_guidance) {
+                    const auto guidance_start = Clock::now();
+                    const auto uncond_text_hidden = step < uncond_trailing_rows
+                        ? row_at(uncond_state->trailing_text, step, config.hidden_size)
+                        : uncond_state->tts_pad;
+                    const auto uncond_embed = frame_embedding(frame, uncond_text_hidden, weights_->weights(), config);
+                    ensure_uncond_capacity(uncond_prompt_steps + out.generated_codes.frames);
+                    uncond_current = uncond_step_graph_->run_step(uncond_embed);
+                    guidance_ms += engine::debug::elapsed_ms(guidance_start, Clock::now());
+                }
             }
         }
         if (request.reference_codes.has_value()) {
@@ -2007,13 +2082,16 @@ public:
         debug::timing_log_scalar("qwen3_tts.talker.cached_step.graph.compute_ms", cached_step_timing.graph_compute_ms);
         debug::timing_log_scalar("qwen3_tts.talker.cached_step.output_read_ms", cached_step_timing.output_read_ms);
         debug::timing_log_scalar("qwen3_tts.talker.cached_step.kv_copy_ms", cached_step_timing.kv_copy_ms);
+        debug::timing_log_scalar("qwen3_tts.talker.guidance_ms", guidance_ms);
         debug::timing_log_scalar("qwen3_tts.talker.total_ms", engine::debug::elapsed_ms(total_start, Clock::now()));
         return out;
     }
 
     int64_t release_cached_step_graph() {
-        const int64_t released_steps = cached_step_graph_ != nullptr ? cached_step_graph_->cache_steps() : 0;
+        const int64_t released_steps = (cached_step_graph_ != nullptr ? cached_step_graph_->cache_steps() : 0) +
+            (uncond_step_graph_ != nullptr ? uncond_step_graph_->cache_steps() : 0);
         cached_step_graph_.reset();
+        uncond_step_graph_.reset();
         return released_steps;
     }
 
@@ -2041,6 +2119,9 @@ private:
     int64_t generation_capacity_ = 0;
     std::unique_ptr<TalkerPrefillGraph> graph_;
     std::unique_ptr<TalkerCachedStepGraph> cached_step_graph_;
+    // Instruct guidance's untold pass: its own prefill graph and step cache.
+    std::unique_ptr<TalkerPrefillGraph> uncond_graph_;
+    std::unique_ptr<TalkerCachedStepGraph> uncond_step_graph_;
     std::unique_ptr<CodePredictorGraph> code_predictor_graph_;
     std::optional<Qwen3TalkerPrefill> cached_prompt_prefill_;
     std::optional<PromptEmbeddingState> cached_prompt_state_;

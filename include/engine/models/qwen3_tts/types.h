@@ -28,6 +28,7 @@ struct Qwen3TTSGenerationOptions {
     int top_k = 50;
     float top_p = 1.0F;
     float repetition_penalty = 1.05F;
+    float guidance_scale = 1.0F;
     float subtalker_temperature = 0.9F;
     int subtalker_top_k = 50;
     float subtalker_top_p = 1.0F;

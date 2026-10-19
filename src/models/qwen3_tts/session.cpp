@@ -89,6 +89,9 @@ Qwen3TTSGenerationOptions generation_options_from_request_impl(
     if (const auto value = runtime::parse_finite_float_option(request.options, {"repetition_penalty"})) {
         options.repetition_penalty = *value;
     }
+    if (const auto value = runtime::parse_finite_float_option(request.options, {"guidance_scale"})) {
+        options.guidance_scale = *value;
+    }
     if (const auto value = runtime::parse_finite_float_option(request.options, {"subtalker_temperature"})) {
         options.subtalker_temperature = *value;
     }
@@ -109,6 +112,9 @@ Qwen3TTSGenerationOptions generation_options_from_request_impl(
     }
     if (options.repetition_penalty <= 0.0F) {
         throw std::runtime_error("Qwen3 TTS repetition_penalty must be positive");
+    }
+    if (options.guidance_scale < 0.0F) {
+        throw std::runtime_error("Qwen3 TTS guidance_scale must be non-negative");
     }
     if (options.subtalker_do_sample && options.subtalker_temperature <= 0.0F) {
         throw std::runtime_error("Qwen3 TTS subtalker_temperature must be positive when sampling");
