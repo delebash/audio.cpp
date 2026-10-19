@@ -1,6 +1,7 @@
 // Qwen3 CustomVoice speaking a copied voice (session option qwen3_tts.base_model_path): the prompt
 // layout, the option's refusals, both clone modes end to end, and the preset path unchanged; and
-// instruct guidance (request option guidance_scale) on a clone.
+// instruct guidance (request option guidance_scale) and the clip's x-vector returned
+// (return_speaker_embedding) on a clone.
 //
 // Needs the real GGUFs, named by environment variables: QWEN3_TTS_CV_GGUF (a CustomVoice model)
 // and QWEN3_TTS_BASE_GGUF (the Base model of the same size); QWEN3_TTS_CV_OTHER_SIZE_GGUF (a
@@ -18,6 +19,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <functional>
 #include <iostream>
@@ -287,6 +289,30 @@ int main() {
         negative.options["guidance_scale"] = "-1";
         check(throws_with([&] { run(*session, negative); }, "guidance_scale must be non-negative"),
             "(f) a negative guidance_scale is refused");
+
+        // (g) return_speaker_embedding: the clip's x-vector comes back once, the Base speaker
+        // encoder's size, the same on a second request; without the option, no artifact.
+        auto embedding_of = [&](bool want) {
+            auto request = take_request(7);
+            add_clip(request, clip, std::nullopt);
+            if (want) {
+                request.options["return_speaker_embedding"] = "true";
+            }
+            return run(*session, request).output_artifacts;
+        };
+        const auto first = embedding_of(true);
+        const bool one = first.size() == 1 && first[0].kind == rt::ArtifactKind::SpeakerEmbedding;
+        check(one, "(g) return_speaker_embedding returns one SpeakerEmbedding artifact");
+        if (one) {
+            const auto dims = std::stoll(first[0].meta.at("dims"));
+            std::vector<float> values(first[0].payload.size() / sizeof(float));
+            std::memcpy(values.data(), first[0].payload.data(), values.size() * sizeof(float));
+            check(dims > 0 && static_cast<int64_t>(values.size()) == dims &&
+                    std::all_of(values.begin(), values.end(), [](float v) { return std::isfinite(v); }),
+                "(g) its payload is dims finite float32 values (" + std::to_string(dims) + ")");
+            check(embedding_of(true)[0].payload == first[0].payload, "(g) the same clip gives the same x-vector again");
+        }
+        check(embedding_of(false).empty(), "(g) without the option, no artifact");
 
         auto both = take_request(7);
         add_clip(both, clip, std::nullopt);

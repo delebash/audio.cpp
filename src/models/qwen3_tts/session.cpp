@@ -706,11 +706,21 @@ runtime::TaskResult Qwen3TTSSession::synthesize(const runtime::TaskRequest & req
     runtime::AudioBuffer merged_audio;
     Qwen3SpeechCodes codes;
     std::optional<Qwen3SpeechCodes> reference_codes;
+    // Request option return_speaker_embedding: the clip's x-vector (the speaker encoder's output,
+    // the Base model's for a CustomVoice clone) comes back beside the audio as a SpeakerEmbedding
+    // artifact, little-endian float32.
+    const auto want_embedding = runtime::find_option(request.options, {"return_speaker_embedding"});
+    const bool return_speaker_embedding =
+        want_embedding.has_value() && runtime::parse_bool_option(*want_embedding, "return_speaker_embedding");
+    std::optional<Qwen3SpeakerEmbedding> speaker_embedding;
     for (const auto & chunk_request : chunk_requests) {
         const Qwen3TTSRequest qwen_request = make_request(chunk_request);
         const auto prompt_start = Clock::now();
         const auto & voice_prompt = resolve_voice_prompt(*qwen_request.voice_clone, prompt_builder);
         prompt_ms += engine::debug::elapsed_ms(prompt_start, Clock::now());
+        if (return_speaker_embedding && !speaker_embedding.has_value()) {
+            speaker_embedding = voice_prompt.speaker_embedding;
+        }
         const auto prefill_start = Clock::now();
         const auto prefill = prompt_builder.build_prefill(qwen_request, voice_prompt);
         prefill_ms += engine::debug::elapsed_ms(prefill_start, Clock::now());
@@ -743,6 +753,17 @@ runtime::TaskResult Qwen3TTSSession::synthesize(const runtime::TaskRequest & req
     release_talker_cached_step_graph.release();
     runtime::TaskResult result;
     result.audio_output = std::move(merged_audio);
+    if (speaker_embedding.has_value()) {
+        std::vector<std::byte> payload(speaker_embedding->values.size() * sizeof(float));
+        std::memcpy(payload.data(), speaker_embedding->values.data(), payload.size());
+        result.output_artifacts.push_back(runtime::make_voice_artifact(
+            runtime::ArtifactKind::SpeakerEmbedding,
+            "speaker_embedding",
+            std::move(payload),
+            {{"dims", std::to_string(speaker_embedding->dims)},
+             {"dtype", "f32le"},
+             {"encoder", base_assets_ != nullptr ? "base_model_path" : "model"}}));
+    }
     debug::timing_log_scalar("qwen3_tts.voice_prompt_ms", prompt_ms);
     debug::timing_log_scalar("qwen3_tts.prefill_build_ms", prefill_ms);
     debug::timing_log_scalar("qwen3_tts.talker_ms", talker_ms);

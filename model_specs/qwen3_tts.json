@@ -163,6 +163,13 @@
         "required": false
       },
       {
+        "name": "return_speaker_embedding",
+        "type": "bool",
+        "description": "Return the reference clip's x-vector (the speaker encoder's output; the Base model's for a CustomVoice clone) beside the audio, as a speaker_embedding artifact of little-endian float32 values; default false. Only voice-clone requests have one.",
+        "required": false,
+        "default": false
+      },
+      {
         "name": "x_vector_only_mode",
         "type": "bool",
         "description": "Use only the speaker embedding for Base voice cloning, or CustomVoice cloning with qwen3_tts.base_model_path, instead of ICL reference codec prompting; default false.",

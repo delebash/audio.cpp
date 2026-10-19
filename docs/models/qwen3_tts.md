@@ -167,6 +167,7 @@ These sampling controls are shared by the Qwen3 TTS Base, VoiceDesign, and Custo
 | `subtalker_top_k` | integer | `50` | Subtalker top-k. |
 | `subtalker_top_p` | float | `1.0` | Subtalker top-p. |
 | `x_vector_only_mode` | bool | `false` | Base voice cloning, or CustomVoice cloning with `qwen3_tts.base_model_path`, using only the reference speaker embedding, without ICL reference codec prompting. |
+| `return_speaker_embedding` | bool | `false` | Return the reference clip's x-vector beside the audio: one `speaker_embedding` artifact (kind `SpeakerEmbedding`) of little-endian float32 values, its `dims` in the artifact's meta. It is the speaker encoder's output, the Base model's for a CustomVoice clone. Only voice-clone requests have one. |
 | `stream_frames_per_event` | positive integer | `12` | Codec frames per fixed event, or the maximum for growing events. Smaller values reduce chunk latency but increase decoding overhead. Ignored offline. |
 | `stream_chunk_policy` | `grow` or `fixed` | `grow` | Grow from one frame to the configured maximum, or emit fixed-size chunks. Ignored offline. |
 
