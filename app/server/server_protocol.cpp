@@ -1,6 +1,7 @@
 // Modified in delebash/audio.cpp (JustVoice's copy of audio.cpp), 2026-10-03: a VoxCPM2 speech
 // request's reference clip doubles as prompt audio when a transcript comes with it (moved here
-// from runtime.cpp with upstream's shared request handling, 2026-10-15).
+// from runtime.cpp with upstream's shared request handling, 2026-10-15), unless the request
+// sets upstream's own ultimate_clone (2026-10-29).
 #include "server_protocol.h"
 
 #include "speech_option_exceptions.h"
@@ -101,8 +102,14 @@ build_speech_request(const Value &body, const SpeechRequestContext &context) {
 
   bool voice_field_is_preset = false;
   const RuntimeVoicePreset *preset = nullptr;
-  if (const auto *value = body.find("voice")) {
-    const auto it = context.voice_presets.find(value->as_string());
+  const auto *voice_value = body.find("voice");
+  if (voice_value != nullptr &&
+      (voice_value->is_null() ||
+       (voice_value->is_string() && voice_value->as_string().empty()))) {
+    voice_value = nullptr;
+  }
+  if (voice_value != nullptr) {
+    const auto it = context.voice_presets.find(voice_value->as_string());
     if (it != context.voice_presets.end()) {
       voice_field_is_preset = true;
       preset = &it->second;
@@ -143,11 +150,10 @@ build_speech_request(const Value &body, const SpeechRequestContext &context) {
   }
 
   const bool has_explicit_voice_ref = body.find("voice_ref") != nullptr;
-  if (const auto *value = body.find("voice");
-      value != nullptr && !voice_field_is_preset) {
+  if (voice_value != nullptr && !voice_field_is_preset) {
     bool voice_library_resolved = false;
     if (context.voice_dir.has_value() && !has_explicit_voice_ref) {
-      const std::string voice_name = value->as_string();
+      const std::string voice_name = voice_value->as_string();
       if (const auto wav =
               resolve_voice_library_wav(*context.voice_dir, voice_name)) {
         voice.speaker = engine::runtime::VoiceReference{};
@@ -167,7 +173,7 @@ build_speech_request(const Value &body, const SpeechRequestContext &context) {
       if (!voice.speaker.has_value()) {
         voice.speaker = engine::runtime::VoiceReference{};
       }
-      voice.speaker->cached_voice_id = value->as_string();
+      voice.speaker->cached_voice_id = voice_value->as_string();
       has_voice = true;
     }
   }
@@ -225,9 +231,18 @@ build_speech_request(const Value &body, const SpeechRequestContext &context) {
   // server set prompt audio for transcription only, so a speech request's transcript
   // was accepted and ignored. When a VoxCPM2 request carries a reference clip and its
   // transcript, the clip is also the prompt audio — as VoxCPM2's own README passes the
-  // same clip to both.
+  // same clip to both. A request (or the model's defaults) that sets upstream's own
+  // ultimate_clone, either way, is left to it: ultimate_clone refuses prompt audio
+  // set beside it.
+  const auto names_ultimate_clone =
+      [](const std::unordered_map<std::string, std::string> &options) {
+        return options.count("ultimate_clone") != 0 ||
+               options.count("voxcpm2.ultimate_clone") != 0;
+      };
   if (context.family == "voxcpm2" && voice.speaker.has_value() &&
-      voice.speaker->audio.has_value() && !request.audio_input.has_value()) {
+      voice.speaker->audio.has_value() && !request.audio_input.has_value() &&
+      !names_ultimate_clone(request.options) &&
+      !names_ultimate_clone(context.default_options)) {
     const auto ref_text = request.options.find("reference_text");
     if (ref_text != request.options.end() && !ref_text->second.empty()) {
       request.audio_input = *voice.speaker->audio;
@@ -449,6 +464,14 @@ model_config_from_json(const Value &body,
   model.task = engine::io::json::optional_string(body, "task", model.task);
   model.mode = engine::io::json::optional_string(body, "mode", model.mode);
   model.lazy = lazy;
+  if (body.find("device") != nullptr) {
+    const int device = engine::io::json::optional_i32(body, "device", 0);
+    if (device < 0) {
+      throw engine::runtime::InvalidRequestError(
+          "device for model " + model.id + " must be >= 0");
+    }
+    model.device = device;
+  }
   if (const auto *value = body.find("model_spec_override")) {
     const auto &selection = value->as_string();
     model.model_spec_override = selection == "embedded"

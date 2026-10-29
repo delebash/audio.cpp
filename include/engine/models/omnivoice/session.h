@@ -11,6 +11,7 @@
 #include "engine/models/omnivoice/tokenizer_text.h"
 
 #include <cstddef>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -84,6 +85,7 @@ private:
     size_t audio_tokenizer_weight_context_bytes_ = 128ull * 1024ull * 1024ull;
     size_t generator_weight_context_bytes_ = 256ull * 1024ull * 1024ull;
     engine::assets::TensorStorageType audio_tokenizer_weight_storage_type_ = engine::assets::TensorStorageType::Native;
+    engine::assets::TensorStorageType audio_tokenizer_codebook_weight_storage_type_ = engine::assets::TensorStorageType::F32;
     engine::assets::TensorStorageType generator_weight_storage_type_ = engine::assets::TensorStorageType::Native;
     bool mem_saver_ = false;
     OmniVoiceGeneratorPerfMode generator_perf_mode_ = OmniVoiceGeneratorPerfMode::Standard;
@@ -103,6 +105,7 @@ private:
     int64_t stream_chunk_codebooks_ = 0;
     bool stream_started_ = false;
     bool stream_has_reference_audio_ = false;
+    std::chrono::steady_clock::time_point stream_wall_start_;
 };
 
 }  // namespace engine::models::omnivoice

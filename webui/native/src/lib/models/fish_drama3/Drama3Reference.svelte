@@ -1,7 +1,7 @@
 <script lang="ts">
   import { FileAudio, X } from '@lucide/svelte';
   import MediaPreview from '$lib/MediaPreview.svelte';
-  import type { SavedVoice } from '$lib/voices';
+  import type { SavedVoice } from '$lib/library';
 
   export let id: string;
   export let file: File | null = null;
@@ -36,7 +36,7 @@
     on:change={(event) => { file = event.currentTarget.files?.[0] || null; savedVoiceId = ''; event.currentTarget.value = ''; }} />
   <label class="file-picker" for={`${id}-audio`}><FileAudio size={17} /><strong>Choose audio</strong><span>{file?.name || 'No recording selected'}</span></label>
   <MediaPreview {file} kind="audio" label="Reference preview" />
-  <label for={`${id}-transcript`}>Words spoken in the recording <span>Required</span></label>
+  <label for={`${id}-transcript`}>Words spoken in the recording <span>Required with a recording</span></label>
   <textarea id={`${id}-transcript`} rows="3" bind:value={transcript} disabled={busy}
     placeholder="Enter the exact reference transcript."></textarea>
 </div>

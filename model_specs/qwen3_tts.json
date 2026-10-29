@@ -210,6 +210,19 @@
     ],
     "session": [
       {
+        "name": "lora",
+        "type": "path",
+        "description": "PEFT LoRA adapter directory or checkpoint file; optional speaker_embedding and tts_config.json sidecars provide a trained custom voice.",
+        "required": false
+      },
+      {
+        "name": "lora_scale",
+        "type": "float",
+        "description": "Multiplier for the adapter's alpha/r scaling; default 1.",
+        "required": false,
+        "default": 1.0
+      },
+      {
         "name": "mem_saver",
         "type": "bool",
         "description": "Release the talker cached-step graph after each request; default false.",
@@ -224,10 +237,54 @@
         "default": false
       },
       {
+        "name": "attention",
+        "type": "enum",
+        "description": "Attention preference; default mixed uses manual prefill and contiguous-K/V flash cached decoding in the talker and code predictor, with eager speech tokenization. auto uses the shared backend policy; eager disables flash; flash uses flash with K/V views. Explicit values override perf_mode.",
+        "values": ["mixed", "auto", "eager", "flash"],
+        "required": false,
+        "default": "mixed"
+      },
+      {
+        "name": "packed_projections",
+        "type": "bool",
+        "description": "Pack QKV and gate/up projections in the talker and code predictor without changing weight dtype; default false, true with cuda_perf. Explicit values override the preset.",
+        "required": false
+      },
+      {
+        "name": "kv_cache_write",
+        "type": "enum",
+        "description": "Talker and code-predictor cache writes: standard by default, optimized with cuda_perf. Optimized uses backend-friendly views and I64 indices to allow fusion where supported. Explicit values override the preset.",
+        "values": ["standard", "optimized"],
+        "required": false
+      },
+      {
+        "name": "kv_cache_type",
+        "type": "enum",
+        "description": "Talker and code-predictor KV storage: f32 by default, f16 with cuda_perf. Explicit values override the preset. F16 reduces cache memory and may change numerical results.",
+        "values": ["f32", "f16"],
+        "required": false
+      },
+      {
+        "name": "talker_kv_cache_alignment",
+        "type": "int",
+        "description": "Round talker KV capacity to this many rows. Defaults to 1 (no padding), or 256 with perf_mode=cuda_perf. Explicit values override the preset. Larger alignments may use more memory and change numerical results.",
+        "min": 1,
+        "default": 1,
+        "required": false
+      },
+      {
+        "name": "stream_decoder",
+        "type": "enum",
+        "description": "GGML streaming decoder; stateful carries convolution and attention history and caches graphs for exact chunk lengths. Uses more graph memory and can change audio; default windowed preserves existing behavior.",
+        "values": ["windowed", "stateful"],
+        "default": "windowed",
+        "required": false
+      },
+      {
         "name": "perf_mode",
         "type": "enum",
-        "description": "Q8_0-only attention performance mode; default off keeps the exact-safe path.",
-        "preset": "perf_mode_flash_attention",
+        "description": "Performance preset; default off. flash_attention selects flash attention. cuda_perf also selects packed projections, optimized cache writes, f16 KV and convolution weights, stateful streaming decoding, and KV alignment 256. Explicit session options override the preset. May change audio and memory use.",
+        "values": ["off", "flash_attention", "cuda_perf"],
         "required": false,
         "default": "off"
       },
@@ -527,6 +584,25 @@
       "download": {
         "kind": "huggingface_snapshot",
         "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
+      }
+    },
+    {
+      "id": "qwen3_tts_0_6b_base_speech_decoder_rk3588",
+      "display_name": "Qwen3 TTS 12Hz 0.6B NPU Speech Decoder RKNN Pair (RK3588)",
+      "format": "rknn",
+      "precision": "f16",
+      "target_directory": "Qwen3-TTS-12Hz-0.6B-Base-GGUF",
+      "files": [
+        "rk3588/qwen3-tts/vocoder_stateful_16_fp16.rknn",
+        "rk3588/qwen3-tts/vocoder_stateful_64b_fp16.rknn"
+      ],
+      "strip_prefix": "rk3588/qwen3-tts",
+      "description": "Pre-compiled RK3588 engine pair (chunk 16 for the first streaming group, chunk 64 for the rest) for the qwen3_tts RKNN speech decoder (qwen3_tts.exec_plan, artifacts.main/first); installs beside the 0.6B GGUF weights and is named by bare file name. Built by tools/rknn from the Qwen3-TTS-12Hz speech tokenizer decoder; see docs/build/rockchip-npu.md.",
+      "download": {
+        "kind": "huggingface_snapshot",
+        "repo": "wOvANAI/rknn-tts-engines",
+        "revision": "main",
+        "gated": false
       }
     }
   ],

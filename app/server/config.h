@@ -48,6 +48,9 @@ struct ServerModelConfig {
     std::string task = "tts";
     std::string mode = "offline";
     bool lazy = false;
+    // Overrides ServerConfig::device for this model. When absent the server-wide
+    // device remains the default, preserving existing single-device configs.
+    std::optional<int> device;
     int slots = 1; // Capacity read only by the startup-selected parallel runtime.
     // Overrides ServerConfig::busy_timeout_ms for this model, and acts as the ceiling
     // a per-request busy_timeout_ms is clamped to. Model runtimes differ by orders of
@@ -72,6 +75,9 @@ struct ServerConfig {
     int port = 8080;
     std::string cors_origins = "";
     bool ui_enabled = true;
+    // Whether the UI was asked for (--ui, or "ui": true in the config file) rather
+    // than on by default.
+    bool ui_requested = false;
     bool ui_management = false;
     // Register, load and unload models at run time (POST /v1/models/load and
     // /v1/models/unload) WITHOUT the WebUI's installer, models-root, upload and
@@ -80,6 +86,7 @@ struct ServerConfig {
     // downloads later is added without restarting the process.
     bool model_management = false;
     engine::core::BackendType backend = engine::core::BackendType::Cuda;
+    std::string backend_impl;
     int device = 0;
     int threads = 1;
     bool lazy_load = false;
@@ -112,6 +119,8 @@ struct ServerConfig {
     // entirely (the default), so existing deployments see no behavior change
     // unless they opt in.
     int min_free_memory_mb = 0;
+    // Memory for cached resampling kernels in MiB, 0 disables the cache; unset keeps the library default.
+    std::optional<int> resample_kernel_cache_mb;
     // Fleet-wide bounds for incrementally delivered request bodies. The defaults are
     // in LiveIngestLimits; a model entry may override any subset of them.
     LiveIngestLimits live_ingest;
@@ -135,5 +144,9 @@ ServerConfig load_server_config(const std::filesystem::path & path, bool paralle
 // Adds the config.default_session_options entries for model.family that the model's
 // own session_options do not set.
 void apply_default_session_options(const ServerConfig & config, ServerModelConfig & model);
+// A WebUI load describes a model only by what its request carries. For an id the
+// server config defines, takes the fields such a request cannot carry from that
+// definition, while the load is still the same kind of model (family and task).
+void inherit_configured_model_fields(const ServerModelConfig & configured, ServerModelConfig & model);
 
 }  // namespace minitts::server

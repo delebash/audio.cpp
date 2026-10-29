@@ -10,8 +10,10 @@
 | GTCRN | `gtcrn`, `gtcrn_dns3`, `gtcrn_vctk`, `gtcrn_streaming` | framework denoise utility API | [GTCRN](#gtcrn) |
 | HTDemucs | `htdemucs` | `sep` | [HTDemucs](#htdemucs) |
 | LFM2.5-Audio | `lfm2_audio` | `s2s` spoken chat (also `asr`, `tts`) | [LFM2.5-Audio](models/lfm2_audio.md) |
+| LFM3-Audio | `lfm3_audio` | `s2s` spoken chat (also `asr`, `tts`) | [LFM3-Audio](models/lfm3_audio.md) |
 | MeanVC2 | `meanvc2` | `vc` | [MeanVC2](#meanvc2) |
 | Mel-Band RoFormer | `mel_band_roformer` | `sep` | [Mel-Band RoFormer](#mel-band-roformer) |
+| Ming 3.0 Audio Tiny | `ming3_audio` | `s2s` spoken responses (also `asr`, `tts`, `clon`) | [Ming Audio](models/ming3_audio.md#spoken-response) |
 | MioCodec | `miocodec` | `vc`, `s2s` | [MioCodec](#miocodec) |
 | MossFormer2 | `mossformer2` | `sep` | [MossFormer2](models/mossformer2.md) |
 | MuScriptor | `muscriptor` | audio to MIDI/events | [MuScriptor](#muscriptor) |
@@ -524,6 +526,25 @@ audiocpp_cli --task midi --family sheetsage2 \
 
 Use the original-precision package; Q8 is not supported. The resulting score can
 condition [YuE2](models/yue2.md) through `abc_file` with `cot=melody` or `cot=full`.
+
+### Encoder attention memory
+
+| Session option | Values | Default | Description |
+|---|---|---|---|
+| `sheetsage2.attention_tile_rows` | integer >= 0 | `0` | Maximum query rows per encoder attention tile on any backend. `0` disables tiling and retains full attention. |
+
+If Vulkan reports that a requested buffer exceeds the device limit, add this
+option to the command above:
+
+```bash
+--session-option sheetsage2.attention_tile_rows=1024
+```
+
+The published model pads audio to a 300-second window, so even short inputs can
+require a 3.6 GB full attention score tensor. Setting `1024` keeps each score
+tensor below 512 MiB while retaining all keys and values, FP32 attention, and the
+full window. This bounds individual score tensors, not total GPU memory. Tiling
+can reduce throughput; it is opt-in on CPU, CUDA, Vulkan, and Metal.
 
 ## VeVo2
 

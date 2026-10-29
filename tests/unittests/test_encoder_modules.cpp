@@ -2,6 +2,7 @@
 #include "engine/framework/core/backend_weight_store.h"
 #include "engine/framework/modules/attention_modules.h"
 #include "engine/framework/modules/activation_modules.h"
+#include "engine/framework/modules/conditioning_modules.h"
 #include "engine/framework/modules/conformer_modules.h"
 #include "engine/framework/modules/convnext_modules.h"
 #include "engine/framework/modules/primitive_modules.h"
@@ -232,6 +233,18 @@ void set_runner_backend(ModuleRunner & runner, engine::core::BackendType type) {
         runner.backend = nullptr;
     }
     runner.backend = engine::core::init_backend(runner.backend_config);
+}
+
+void test_cuda_f16_lowerings_default_off() {
+    using namespace engine;
+    require(!modules::LinearConfig{}.cuda_f16_output, "FP16 Linear must be opt-in");
+    require(!modules::NormConfig{}.cuda_f16_output, "FP16 LayerNorm must be opt-in");
+    require(!modules::GroupNormConfig{}.cuda_f16_output, "FP16 GroupNorm must be opt-in");
+    require(!modules::Conv2dConfig{}.cuda_cudnn && !modules::Conv2dConfig{}.cuda_f16_output,
+        "cuDNN Conv2D and FP16 output must be opt-in");
+    static_assert(static_cast<int>(modules::ScaledDotProductAttentionLowering::ExplicitCpuPerHead) == 3);
+    (void) []() -> modules::SiluModule { return {}; }();
+    (void) []() -> modules::AddModule { return {}; }();
 }
 
 void test_graph_optimizer_elides_metadata_nodes_without_changing_output() {
@@ -938,6 +951,49 @@ void test_batch_norm_eval_binding() {
     require_allclose(bias, {-3, 0}, 1e-6f, "batch norm eval bias");
 }
 
+void test_timestep_embedding_norm_opt_in() {
+    using namespace engine;
+    ModuleRunner runner;
+    auto timestep = runner.make_f32(core::TensorShape::from_dims({1, 1}));
+    auto freqs = runner.make_f32(core::TensorShape::from_dims({2}));
+    auto identity = runner.make_f32(core::TensorShape::from_dims({4, 4}));
+    auto zeros = runner.make_f32(core::TensorShape::from_dims({4}));
+    auto alpha = runner.make_f32(core::TensorShape::from_dims({4}));
+    modules::TimestepEmbeddingWeights weights{freqs, {identity, zeros}, {identity, zeros}, alpha};
+    modules::TimestepEmbeddingConfig config{4, 4, 1e-5f};
+    require(config.norm == modules::TimestepEmbeddingNorm::VarianceRms, "default norm remains the variance RMS");
+    auto legacy = modules::TimestepEmbeddingModule(config).build(runner.ctx, timestep, weights);
+    config.norm = modules::TimestepEmbeddingNorm::Rms;
+    auto rms = modules::TimestepEmbeddingModule(config).build(runner.ctx, timestep, weights);
+    runner.allocate_tensors();
+    const float t = 0.7f;
+    const std::vector<float> freq_values{1.0f, 0.25f};
+    const std::vector<float> alpha_values{1.0f, 2.0f, 0.5f, -1.0f};
+    core::write_tensor_f32(timestep, {t});
+    core::write_tensor_f32(freqs, freq_values);
+    core::write_tensor_f32(identity, {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1});
+    core::write_tensor_f32(zeros, {0, 0, 0, 0});
+    core::write_tensor_f32(alpha, alpha_values);
+    std::vector<float> x;
+    for (float f : freq_values) x.push_back(std::cos(t * f));
+    for (float f : freq_values) x.push_back(std::sin(t * f));
+    for (float & v : x) v = v / (1.0f + std::exp(-v));
+    float mean = 0.0f, mean_square = 0.0f;
+    for (float v : x) {
+        mean += v / 4.0f;
+        mean_square += v * v / 4.0f;
+    }
+    float variance = 0.0f;
+    for (float v : x) variance += (v - mean) * (v - mean) / 3.0f;
+    std::vector<float> expected_legacy, expected_rms;
+    for (size_t i = 0; i < x.size(); ++i) {
+        expected_legacy.push_back(x[i] * alpha_values[i] / std::sqrt(variance + 1e-5f));
+        expected_rms.push_back(x[i] * alpha_values[i] / std::sqrt(mean_square + 1e-5f));
+    }
+    require_allclose(runner.run_f32(legacy), expected_legacy, 1e-4f, "legacy variance RMS time embedding");
+    require_allclose(runner.run_f32(rms), expected_rms, 1e-5f, "opt-in plain RMS time embedding");
+}
+
 void test_feed_forward_activation_opt_in() {
     using namespace engine;
     ModuleRunner runner;
@@ -1169,6 +1225,7 @@ void test_prelu_broadcasting() {
 
 int main() {
     try {
+        test_cuda_f16_lowerings_default_off();
         test_weighted_statistics_and_scale_bias();
         test_convnext_default_matches_composition();
         test_prelu_broadcasting();
@@ -1176,6 +1233,7 @@ int main() {
         test_depthwise_subsampling_stage_masks();
         test_batch_norm_eval_binding();
         test_feed_forward_activation_opt_in();
+        test_timestep_embedding_norm_opt_in();
         test_cached_decoder_block_matches_composition(false);
         test_cached_decoder_block_matches_composition(true);
         test_cached_cross_flash_masks();

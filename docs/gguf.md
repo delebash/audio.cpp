@@ -94,6 +94,7 @@ Status labels:
 | `fun_asr_nano` | Done | Pass | --- | Pass | Pass |
 | `gigaam_asr` | Done | --- | Pass | Pass | --- |
 | `glm_tts` | Done | Pass (TTS + clone) | --- | --- | Pass (ASR match, drift) |
+| `gradium_phonon` | Done | Pass | Pass (BF16 source) | --- | Pass (drift) |
 | `heartmula` | Done | Pass | --- | Pass (drift) | Pass (drift) |
 | `higgs_audio_stt` | Done | Pass | --- | Pass | Pass |
 | `higgs_audio_tts` | Done | Pass | --- | Pass | Pass |
@@ -107,12 +108,15 @@ Status labels:
 | `kitten_tts` | Done | --- | Pass (drift) | --- | --- |
 | `kroko_asr` | Done | Pass | --- | --- | Pass |
 | `kugelaudio` | Done | --- | --- | Pass (ASR match, drift) | --- |
+| `latentsync` | Done | --- | Pass (short CUDA parity, Vulkan smoke) | Pass (F16; full CUDA video) | Pass (Q8/F16; full CUDA video) |
 | `magpie_tts` | Done | --- | Pass | --- | Pass |
 | `marblenet_vad` | Bundled (tiny model) | Pass | --- | --- | --- |
 | `maya1` | Done | --- | Pass | --- | --- |
 | `meanvc2` | Done | --- | --- | Pass | --- |
 | `mel_band_roformer` | Done | Pass | --- | Pass (drift) | Pass (drift) |
 | `micro_wake_word` | Done | --- | Pass (F32) | --- | --- |
+| `ming3_audio` | Done | --- | Pass (BF16; CUDA ASR, TTS, clone, S2S; Vulkan ASR + TTS + clone; drift) | Pass (BF16) | Pass (expert-only; full CUDA audio understanding, resident + offload; drift) |
+| `ming3_tts` | Done | --- | Pass (BF16; TTS + clone, drift) | Pass (BF16; TTS + clone, drift) | Pass (TTS + clone) |
 | `miocodec` | Done | Pass | Pass | Pass (drift) | Pass (drift) |
 | `miotts` | Done | Pass | Pass | Pass (drift) | Pass (ASR match, drift) |
 | `mms_forced_aligner` | Done | Pass | --- | Pass | Pass (bit-identical) |
@@ -173,6 +177,7 @@ Additional lower-bit checks:
 |---|---|---|
 | `cohere_asr` | `q4_0` | Pass (drift) |
 | `meanvc2` | `q4_k` | Pass |
+| `ming3_audio` | `q4_k` | Pass (Q4_K experts, Q8_0 text head; CUDA resident + offload, long audio + chunked TTS; Vulkan ASR + TTS + clone) |
 | `moss_transcribe_diarize` | `q4_k` | No (long-audio segmentation/timestamp drift) |
 | `owsm` | `q4_k` | Pass (Small and Medium; transcript and timestamp drift) |
 | `personaplex` | `q4_k` | Pass |
@@ -190,6 +195,9 @@ Q8 packaging notes:
   tensors in Q8 in addition to the default converter selection. `conditioner.embed`,
   `cond_embed`, and Mimi conv tensors are not forced to Q8 because tested outputs
   drifted or the current conv path casts quantized conv weights back to F32.
+- `gradium_phonon` Q8 quantizes only the flow transformer linears. The flow net,
+  conditioner tables and input/EOS projections stay BF16 and Mimi stays F32; see the
+  [Gradium Phonon](models/gradium_phonon.md) conversion commands.
 - `dots_tts` Q8 keeps the vocoder in 16-bit storage and folds vocoder
   weight-norm conv tensors at conversion time. Use
   `--keep-type 'vocoder/*=f16' --fold-weight-norm 'vocoder/*'` for both SOAR

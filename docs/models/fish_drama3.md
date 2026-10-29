@@ -6,11 +6,32 @@ native audio.cpp with GGML; Python is used to prepare the checkpoint.
 
 Built with Fish Audio.
 
-The implementation includes the 40-layer hybrid attention/MoE backbone,
+The base model includes the 40-layer hybrid attention/MoE backbone,
 256 experts with eight selected per token, four shared enrichment layers,
 nine residual codebook layers with persistent timeline caches, and the Fish DAC
 encoder/decoder. It supports offline and streaming TTS, voice references,
 speaker and event tags in text, long-form chunking, and continuation/edit history.
+
+## Variants
+
+Both variants use `--family fish_drama3` and the same CLI and server routes.
+The loader reads layer-specific expert counts and the output-head layout from
+the checkpoint, so Drama3-small does not need a separate family.
+
+| Variant | GGUF packages | Source |
+|---|---|---|
+| Drama3 base | Q2_K, Q3_K, and Q4_K expert packages | [Jmica/Drama-3-GGUF](https://huggingface.co/Jmica/Drama-3-GGUF) |
+| Drama3-small | `fish_drama3_small_iq3_xxs`: `Drama3-small-GGUF/drama3-small-IQ3_XXS.gguf` | [pentacoxian-dev/drama3-small-GGUF](https://huggingface.co/pentacoxian-dev/drama3-small-GGUF) |
+
+Install the small variant with:
+
+```bash
+python tools/model_manager_v2.py install fish_drama3_small_iq3_xxs --models-root models
+```
+
+Use `--model models/Drama3-small-GGUF/drama3-small-IQ3_XXS.gguf` with the
+generation examples below. Base-model weight sizes and memory measurements
+in this guide do not describe the small checkpoint.
 
 ## Windows build
 
@@ -51,7 +72,7 @@ uv run --no-project --python 3.12 --with huggingface_hub hf download `
   --local-dir models\Drama-3-GGUF
 ```
 
-The model manager also lists all four packages:
+The model manager lists the base and small packages:
 
 ```powershell
 uv run --no-project --python 3.12 tools\model_manager_v2.py list | Select-String 'fish_drama3'
@@ -125,6 +146,49 @@ CPU PyTorch dependencies managed by uv and does not load weights onto a GPU.
 
 ## Generate and stream
 
+Host sampling is used by default. Set
+`--session-option fish_drama3.device_sampling=true` to enable tower decode and
+codebook sampling in one cached backend graph, or select the `cuda_perf` preset.
+Graph probability arithmetic is F32, so sampled outputs may differ from host sampling.
+
+`fish_drama3.perf_mode` defaults to `off`. The opt-in `cuda_perf` preset sets
+the following defaults; explicit session options override the preset:
+
+| Session option | `off` | `cuda_perf` | Effect |
+|---|---|---|---|
+| `fish_drama3.fused_moe` | `false` | `true` | Cached-decode routing and SwiGLU fusion. |
+| `fish_drama3.kv_cache_type` | `f16` | `f16` | KV storage precision, not weight precision. Set `f32` to use F32 KV storage. |
+| `fish_drama3.kv_cache_alignment` | `1` | `256` | Cached attention-prefix buckets; all history retained. |
+| `fish_drama3.device_sampling` | `false` | `true` | Cached tower decode and device sampling. |
+| `fish_drama3.codec_batch_frames` | `4` | `4` | Streaming codec batch ceiling; existing default retained. |
+| `fish_drama3.codec_async_decode` | `true` | `true` | Streaming AR/codec overlap; existing default retained. |
+| `fish_drama3.backbone_prefill_cache_mb` | `256` | `256` | Backbone prefill graph-cache budget in MiB; existing default retained. |
+| `fish_drama3.tower_prefill_cache_mb` | `256` | `256` | Tower prefill graph-cache budget in MiB; existing default retained. |
+
+`off` retains the defaults listed above. Explicit session options override either
+preset, including `fish_drama3.device_sampling=false` with `cuda_perf`.
+
+Fused arithmetic and attention shapes can change sampled audio. To enable the
+combined CUDA path, add:
+
+```text
+--session-option fish_drama3.perf_mode=cuda_perf
+```
+
+Streaming defaults to a four-frame codec batch ceiling with AR/codec overlap.
+To use one-frame synchronous decoding:
+
+```text
+--session-option fish_drama3.codec_batch_frames=1
+--session-option fish_drama3.codec_async_decode=false
+```
+
+Batching starts with one frame, grows to the configured ceiling, and flushes the
+final partial batch. Larger batches retain more codec workspace and can introduce
+small waveform rounding differences without changing AR sampling. Overlap uses
+the dedicated codec backend and completes all audio before the request returns.
+Offline decoding is unchanged.
+
 ```powershell
 .\build\windows-cuda-release\bin\audiocpp_cli.exe `
   --task tts --family fish_drama3 --backend cuda --mode streaming `
@@ -156,6 +220,24 @@ codec weights. Set `--session-option fish_drama3.codec_encoder_bf16_compute=fals
 to restore the previous encoder arithmetic. This changes reference-conditioned
 generation but does not change codec decoding or backbone inference.
 
+To reduce reference-encoder convolution memory, set
+`--session-option fish_drama3.codec_encoder_chunk_samples=65536`.
+The value is measured in samples at the codec sample rate and must be zero
+(the default, full encoding) or a positive multiple of 512. Chunking starts
+when the padded reference exceeds the chunk size plus 16,384 context samples;
+shorter references use the full graph. Overlapping convolution windows reuse
+one cached graph; the transformer and quantizer still process the full feature
+sequence, so total memory is not constant. Chunking can cost additional time
+and produce small backend-dependent numerical differences. Existing GGUFs
+accept the option without a spec override.
+
+Sampling defaults to `top_k=4097`, which keeps every candidate for the semantic
+token and each tower codebook, so only `top_p=0.9` filters. This matches Fish's
+official Drama 3 Space, which dropped the top-k cap because `top_k=30` left takes
+stuck in silence. With `--request-option top_k=30`, long chunked requests can
+stall for about 9-21 s. The repetition-avoiding resample keeps its own
+`top_k=30`, `top_p=0.95`.
+
 Host memory is required for offloaded weights. Context capacity includes text,
 reference audio frames, prior takes, and the requested generation budget.
 
@@ -167,6 +249,13 @@ GGUF file and read only selected experts into a bounded native-format cache.
 32). Dense backbone, tower, and codec weights remain resident. The existing
 `cpu_expert_layers` setting still selects CPU execution for those layers, but
 their expert caches are bounded too. No GGUF conversion is required.
+
+`fish_drama3.disk_expert_read_threads` selects 1 to 64 host workers for copying
+selected experts from the memory-mapped GGUF into staging. The default is 1
+(serial); try 4 to enable parallel copies using OpenMP or Apple dispatch. This applies only
+with `disk_experts=true` and `pin_experts=false`. Backend uploads and inference
+are unchanged. The host reader is backend-independent; Apple builds do not
+require OpenMP for parallel reads.
 
 This is a memory/speed trade-off, not a faster MoE kernel. With
 `cpu_expert_layers=0`, prompt prefill groups tokens by expert within each layer,
@@ -278,7 +367,7 @@ synchronously and calls the event sink while audio is generated; `finalize()`
 returns the complete audio and the reusable take artifact. An application can
 invoke generation on its worker thread to keep its UI responsive.
 
-Long-form text uses the framework chunker, with `text_chunk_size=200` and
+Long-form text uses the framework chunker, with `text_chunk_size=128` and
 `text_chunk_mode=tag_aware` by default. Each new chunk includes the previous
 chunk as context. Caller-supplied history remains ordered in every chunk.
 

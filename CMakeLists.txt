@@ -158,6 +158,8 @@ option(ENGINE_BUILD_WARMBENCH "Build warmbench helper binaries" OFF)
 option(AUDIOCPP_BUILD_C_API "Build the C ABI (include/audiocpp.h) as a shared library" OFF)
 set(AUDIOCPP_C_API_MODEL_ROOT "" CACHE PATH
     "Models root for the C API model test. Unset leaves the test registered but skipping.")
+set(AUDIOCPP_RKNN_TEST_ENGINE "" CACHE PATH
+    "A .rknn engine compiled for the build host's SoC, for the RKNN sidecar test. Unset leaves the test registered but skipping.")
 set(AUDIOCPP_GGML_SOURCE_DIR
     "${CMAKE_CURRENT_SOURCE_DIR}/external/ggml"
     CACHE PATH "ggml source tree to build with AudioCPP")
@@ -483,6 +485,9 @@ if (ENGINE_ENABLE_NEON)
         src/framework/neon/execution.cpp
         src/framework/neon/worker_team.cpp
         src/framework/neon/blocks.cpp
+        src/framework/neon/hifigan.cpp
+        src/framework/neon/hift.cpp
+        src/framework/neon/vocoder_operators.cpp
         src/framework/neon/kernels.cpp
     )
     target_include_directories(engine_neon PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
@@ -498,7 +503,8 @@ add_library(engine_core OBJECT
     src/framework/model_spec/schema.cpp
     src/framework/assets/tensor_source.cpp
     src/framework/assets/weight_norm_folding.cpp
-    src/framework/assets/lora_tensor_source.cpp
+    src/framework/assets/weight_adapter.cpp
+    src/framework/assets/weight_adapter_source.cpp
     src/framework/assets/torch_bin.cpp
     src/framework/core/module.cpp
     src/framework/core/backend.cpp
@@ -546,6 +552,7 @@ add_library(engine_core OBJECT
     src/framework/debug/trace.cpp
     src/framework/debug/profiler.cpp
     src/framework/rknn/engine.cpp
+    src/framework/rknn/engine_resources.cpp
     src/framework/decoders/moss_tts_delay/backbone.cpp
     src/framework/decoders/moss_tts_delay/config.cpp
     src/framework/decoders/moss_tts_delay/delay_decoder.cpp
@@ -569,6 +576,7 @@ add_library(engine_core OBJECT
     src/framework/modules/conv_modules.cpp
     src/framework/modules/zipformer_modules.cpp
     src/framework/modules/speech_encoders/whisper_embedding.cpp
+    src/framework/modules/speech_decoders/ming_flow_runtime.cpp
     src/framework/modules/speech_encoders/whisper_frontend.cpp
     src/framework/modules/speaker_encoders/campplus_encoder.cpp
     src/framework/modules/speech_encoders/s3_tokenizer.cpp
@@ -658,10 +666,12 @@ add_library(engine_core OBJECT
     src/framework/codecs/oobleck_audio_vae_runtime.cpp
     src/framework/codecs/redae_codec_runtime.cpp
     src/framework/codecs/snac_decoder_runtime.cpp
+    src/framework/codecs/ming_audio_vae_runtime.cpp
     src/framework/codecs/s3gen_runtime.cpp
     src/framework/conditioners/clap_audio_conditioner_runtime.cpp
     src/framework/conditioners/cav_mae_st_conditioner_runtime.cpp
     src/framework/conditioners/musicgen_style_conditioner_runtime.cpp
+    src/framework/conditioners/musiccoca_runtime.cpp
     src/framework/conditioners/open_clip_conditioner_runtime.cpp
     src/framework/conditioners/synchformer_conditioner_runtime.cpp
     src/models/controlfoley/flow_denoiser.cpp
@@ -802,6 +812,23 @@ audiocpp_add_model(pulsevad
         engine::models::pulsevad::make_pulsevad_loader
 )
 
+# Earshot VAD: plain C++ port with bundled weights (assets/framework/models/earshot_vad).
+audiocpp_add_model(earshot_vad
+    SOURCES
+        src/community_models/earshot_vad/runtime.cpp
+        src/community_models/earshot_vad/session.cpp
+    INCLUDES
+        engine/community_models/earshot_vad/session.h
+    LOADERS
+        engine::community_models::earshot_vad::make_earshot_vad_loader
+    ALIASES
+        earshot
+)
+if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    # Keep multiply-add rounding identical to the Rust reference.
+    set_source_files_properties(src/community_models/earshot_vad/runtime.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
+endif()
+
 audiocpp_add_model(smart_turn
     SOURCES
         src/models/smart_turn/runtime.cpp
@@ -885,6 +912,9 @@ audiocpp_add_model(kokoro_tts
 if(MSVC)
     target_compile_options(engine_model_kokoro_tts PRIVATE /utf-8)
 endif()
+if(ENGINE_ENABLE_NEON)
+    target_sources(engine_model_kokoro_tts PRIVATE src/models/kokoro_tts/neon_generator.cpp)
+endif()
 if(AUDIOCPP_STATIC_ESPEAK)
     target_compile_definitions(engine_model_kokoro_tts PRIVATE AUDIOCPP_STATIC_ESPEAK=1)
 endif()
@@ -903,6 +933,8 @@ audiocpp_add_model(omnivoice
         engine/models/omnivoice/loader.h
     LOADERS
         engine::models::omnivoice::make_omnivoice_loader
+    OBJECT_LIBRARIES
+        utf8proc_vendor
 )
 
 audiocpp_add_model(reuse
@@ -1052,6 +1084,7 @@ audiocpp_add_model(maya1
 audiocpp_add_model(parakeet_tdt
     SOURCES
         src/community_models/parakeet_tdt/assets.cpp
+        src/community_models/parakeet_tdt/bark3.cpp
         src/community_models/parakeet_tdt/session.cpp
         src/community_models/parakeet_tdt/encoder.cpp
         src/community_models/parakeet_tdt/decoder.cpp
@@ -1117,6 +1150,7 @@ audiocpp_add_model(piper_tts
         src/community_models/piper_tts/frontend.cpp
         src/community_models/piper_tts/vits_runtime.cpp
         src/community_models/piper_tts/rknn_decoder.cpp
+        src/community_models/piper_tts/rknn_duration_encoder.cpp
         src/community_models/piper_tts/session.cpp
     INCLUDES
         engine/community_models/piper_tts/session.h
@@ -1132,6 +1166,10 @@ audiocpp_add_model(kitten_tts2
     INCLUDES engine/community_models/kitten_tts2/session.h
     LOADERS engine::community_models::kitten_tts2::make_kitten_tts2_loader
     DEPENDS chatterbox)
+
+if (ENGINE_ENABLE_NEON)
+    target_sources(engine_model_kitten_tts2 PRIVATE src/community_models/kitten_tts2/neon_vocoder.cpp)
+endif()
 
 audiocpp_add_model(kitten_tts
     SOURCES
@@ -1223,6 +1261,25 @@ audiocpp_add_model(minimax_h3
     LOADERS
         engine::models::minimax_h3::make_minimax_h3_loader
 )
+
+audiocpp_add_model(latentsync
+    SOURCES
+        src/community_models/latentsync/whisper.cpp
+        src/community_models/latentsync/unet.cpp
+        src/community_models/latentsync/sd_vae.cpp
+        src/community_models/latentsync/face.cpp
+        src/community_models/latentsync/sampling.cpp
+        src/community_models/latentsync/pipeline.cpp
+        src/community_models/latentsync/video.cpp
+        src/community_models/latentsync/session.cpp
+    INCLUDES
+        engine/community_models/latentsync/session.h
+    LOADERS
+        engine::models::latentsync::make_latentsync_loader
+)
+if (GGML_CUDA_CUDNN_CONV2D)
+    target_compile_definitions(engine_model_latentsync PRIVATE GGML_CUDA_CUDNN_CONV2D=1)
+endif()
 
 audiocpp_add_model(liveavatar
     SOURCES
@@ -1319,10 +1376,14 @@ audiocpp_add_model(pocket_tts
         src/models/pocket_tts/voice_conditioner.cpp
         src/models/pocket_tts/loader.cpp
         src/models/pocket_tts/session.cpp
+        src/models/pocket_tts/gradium_phonon.cpp
     INCLUDES
         engine/models/pocket_tts/loader.h
     LOADERS
         engine::models::pocket_tts::make_pocket_tts_loader
+        engine::models::pocket_tts::make_gradium_phonon_loader
+    ALIASES
+        gradium_phonon
 )
 
 audiocpp_add_model(miocodec
@@ -1537,6 +1598,33 @@ add_library(utf8proc_vendor OBJECT external/utf8proc/utf8proc.c)
 set_target_properties(utf8proc_vendor PROPERTIES EXCLUDE_FROM_ALL TRUE POSITION_INDEPENDENT_CODE ON)
 target_include_directories(utf8proc_vendor PUBLIC external/utf8proc)
 target_compile_definitions(utf8proc_vendor PUBLIC UTF8PROC_STATIC)
+
+audiocpp_add_model(ming3_audio
+    SOURCES
+        src/models/ming3_audio/assets.cpp
+        src/models/ming3_audio/audio_encoder.cpp
+        src/models/ming3_audio/backbone.cpp
+        src/models/ming3_audio/frontend.cpp
+        src/models/ming3_audio/session.cpp
+        src/models/ming3_audio/talker.cpp
+        src/models/ming3_audio/talker_frontend.cpp
+    INCLUDES
+        engine/models/ming3_audio/session.h
+    LOADERS
+        engine::models::ming3_audio::make_ming3_audio_loader
+)
+
+audiocpp_add_model(ming3_tts
+    SOURCES
+        src/models/ming3_tts/assets.cpp
+        src/models/ming3_tts/generator.cpp
+        src/models/ming3_tts/prompt.cpp
+        src/models/ming3_tts/session.cpp
+    INCLUDES
+        engine/models/ming3_tts/session.h
+    LOADERS
+        engine::models::ming3_tts::make_ming3_tts_loader
+)
 
 audiocpp_add_model(plapre
     SOURCES
@@ -1768,6 +1856,7 @@ audiocpp_add_model(irodori_tts
         src/models/irodori_tts/codec.cpp
         src/models/irodori_tts/condition_encoder.cpp
         src/models/irodori_tts/duration.cpp
+        src/models/irodori_tts/mf_dit.cpp
         src/models/irodori_tts/rf_dit.cpp
         src/models/irodori_tts/session.cpp
         src/models/irodori_tts/tokenizer_text.cpp
@@ -2408,6 +2497,18 @@ audiocpp_add_model(mira_tts
 )
 
 
+audiocpp_add_model(magenta_realtime_2
+    SOURCES
+        src/models/magenta_realtime_2/assets.cpp
+        src/models/magenta_realtime_2/depthformer.cpp
+        src/models/magenta_realtime_2/session.cpp
+        src/models/magenta_realtime_2/spectrostream.cpp
+    INCLUDES
+        engine/models/magenta_realtime_2/session.h
+    LOADERS
+        engine::models::magenta_realtime_2::make_magenta_realtime_2_loader
+)
+
 audiocpp_add_model(midashenglm_gen
     SOURCES
         src/models/midashenglm_gen/assets.cpp
@@ -2617,6 +2718,47 @@ audiocpp_add_model(lfm2_audio
         engine/community_models/lfm2_audio/session.h
     LOADERS
         engine::community_models::lfm2_audio::make_lfm2_audio_loader
+)
+
+audiocpp_add_model(lfm3_audio
+    SOURCES
+        src/community_models/lfm3_audio/assets.cpp
+        src/community_models/lfm3_audio/published_gguf.cpp
+        src/community_models/lfm3_audio/weights.cpp
+        src/community_models/lfm3_audio/tokenizer.cpp
+        src/community_models/lfm3_audio/prompt.cpp
+        src/community_models/lfm3_audio/chat.cpp
+        src/community_models/lfm3_audio/features.cpp
+        src/community_models/lfm3_audio/blocks.cpp
+        src/community_models/lfm3_audio/encoder.cpp
+        src/community_models/lfm3_audio/backbone.cpp
+        src/community_models/lfm3_audio/depth.cpp
+        src/community_models/lfm3_audio/sampling.cpp
+        src/community_models/lfm3_audio/codec.cpp
+        src/community_models/lfm3_audio/generator.cpp
+        src/community_models/lfm3_audio/debug.cpp
+        src/community_models/lfm3_audio/session.cpp
+    INCLUDES
+        engine/community_models/lfm3_audio/session.h
+    LOADERS
+        engine::community_models::lfm3_audio::make_lfm3_audio_loader
+    DEPENDS
+        lfm2_audio
+)
+
+audiocpp_add_model(xtts_v2
+    SOURCES
+        src/community_models/xtts_v2/assets.cpp
+        src/community_models/xtts_v2/frontend.cpp
+        src/community_models/xtts_v2/gpt.cpp
+        src/community_models/xtts_v2/loader.cpp
+        src/community_models/xtts_v2/session.cpp
+        src/community_models/xtts_v2/tokenizer_text.cpp
+        src/community_models/xtts_v2/vocoder.cpp
+    INCLUDES
+        engine/community_models/xtts_v2/loader.h
+    LOADERS
+        engine::models::xtts_v2::make_xtts_v2_loader
 )
 
 set(AUDIOCPP_ENABLED_MODELS "")
@@ -2852,6 +2994,12 @@ function(audiocpp_use_utf8_codepage target)
     endif()
 endfunction()
 
+file(GLOB AUDIOCPP_RECIPE_PLUGIN_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/app/recipe/plugins/*.cpp")
+set(AUDIOCPP_RECIPE_SOURCES
+    app/recipe/recipe.cpp
+    ${AUDIOCPP_RECIPE_PLUGIN_SOURCES})
+
 add_executable(audiocpp_cli
     app/common/base64.cpp
     app/common/build_info.cpp
@@ -2861,6 +3009,8 @@ add_executable(audiocpp_cli
     app/cli/request.cpp
     app/streaming/pcm_source.cpp
     app/streaming/streaming.cpp
+    ${AUDIOCPP_RECIPE_SOURCES}
+    app/recipe/cli_recipe.cpp
     app/workflow/execution.cpp
     app/workflow/file_sink.cpp
     app/workflow/pipeline.cpp
@@ -3124,6 +3274,7 @@ add_executable(audiocpp_server
     app/cli/request.cpp
     app/streaming/pcm_source.cpp
     app/streaming/streaming.cpp
+    ${AUDIOCPP_RECIPE_SOURCES}
 )
 
 target_link_libraries(audiocpp_server PRIVATE engine_runtime ggml)
@@ -3183,6 +3334,11 @@ if (ENGINE_ENABLE_OPENMP)
 endif()
 
 if (ENGINE_BUILD_TESTS OR ENGINE_BUILD_EXTENDED_TESTS OR ENGINE_BUILD_MODEL_TESTS)
+    if (earshot_vad IN_LIST AUDIOCPP_LINKED_MODELS)
+        add_executable(earshot_vad_probe tests/earshot_vad/probe.cpp)
+        target_link_libraries(earshot_vad_probe PRIVATE engine_runtime ggml)
+    endif()
+
     if (firered_vad IN_LIST AUDIOCPP_LINKED_MODELS)
         add_executable(firered_vad_probe tests/firered_vad/probe.cpp)
         target_link_libraries(firered_vad_probe PRIVATE engine_runtime ggml)
@@ -3348,6 +3504,17 @@ if (ENGINE_BUILD_TESTS OR ENGINE_BUILD_EXTENDED_TESTS OR ENGINE_BUILD_MODEL_TEST
         target_link_libraries(${target} PRIVATE engine_runtime ggml)
     endfunction()
 
+    if (magenta_realtime_2 IN_LIST AUDIOCPP_LINKED_MODELS)
+        add_executable(magenta_musiccoca_parity tests/magenta_realtime_2/musiccoca_parity.cpp)
+        target_link_libraries(magenta_musiccoca_parity PRIVATE engine_runtime ggml)
+        add_executable(magenta_codec_parity tests/magenta_realtime_2/codec_parity.cpp)
+        target_link_libraries(magenta_codec_parity PRIVATE engine_runtime ggml)
+        add_executable(magenta_validation tests/magenta_realtime_2/validation.cpp)
+        target_link_libraries(magenta_validation PRIVATE engine_runtime ggml)
+        add_executable(magenta_greedy_parity tests/magenta_realtime_2/greedy_parity.cpp)
+        target_link_libraries(magenta_greedy_parity PRIVATE engine_runtime ggml)
+    endif()
+
     if (whistle_asr IN_LIST AUDIOCPP_LINKED_MODELS)
         add_executable(whistle_frontend_test
             tests/whistle_asr/test_frontend.cpp
@@ -3402,7 +3569,19 @@ if (ENGINE_BUILD_TESTS OR ENGINE_BUILD_EXTENDED_TESTS OR ENGINE_BUILD_MODEL_TEST
     add_test(NAME cpu_extra_buffers_test COMMAND cpu_extra_buffers_test)
     add_engine_unittest(rknn_engine_test tests/unittests/test_rknn_engine.cpp)
     add_test(NAME rknn_engine_test COMMAND rknn_engine_test)
+    if (ENGINE_ENABLE_RKNN)
+        # The driver-priced cases in the file compile only where a runtime is linked; they ask
+        # the same header the engine itself compiles against.
+        target_compile_definitions(rknn_engine_test PRIVATE ENGINE_HAVE_RKNN=1)
+        if (ENGINE_RKNN_INCLUDE_DIR)
+            target_include_directories(rknn_engine_test PRIVATE ${ENGINE_RKNN_INCLUDE_DIR})
+        endif()
+    endif()
     if (ENGINE_ENABLE_NEON)
+        add_executable(neon_vocoder_test tests/unittests/test_neon_vocoder.cpp)
+        target_link_libraries(neon_vocoder_test PRIVATE engine_neon)
+        add_test(NAME neon_vocoder_test COMMAND neon_vocoder_test)
+        set_tests_properties(neon_vocoder_test PROPERTIES SKIP_RETURN_CODE 77)
         add_engine_unittest(neon_blocks_test tests/unittests/test_neon_blocks.cpp)
         target_include_directories(neon_blocks_test PRIVATE src/framework/neon)
         add_test(NAME neon_blocks_test COMMAND neon_blocks_test)
@@ -3437,6 +3616,10 @@ if (ENGINE_BUILD_TESTS OR ENGINE_BUILD_EXTENDED_TESTS OR ENGINE_BUILD_MODEL_TEST
         target_link_libraries(moonshine_neon_decoder_test PRIVATE engine_neon)
         add_test(NAME moonshine_neon_decoder_test COMMAND moonshine_neon_decoder_test)
     endif()
+    add_engine_unittest(recipe_test tests/unittests/test_recipe.cpp)
+    target_sources(recipe_test PRIVATE ${AUDIOCPP_RECIPE_SOURCES})
+    target_include_directories(recipe_test PRIVATE app/recipe)
+    add_test(NAME recipe_test COMMAND recipe_test)
     if (ENGINE_ENABLE_VULKAN)
         add_engine_unittest(vulkan_shared_weight_cache_test tests/unittests/test_vulkan_shared_weight_cache.cpp)
         add_test(NAME vulkan_shared_weight_cache_test COMMAND vulkan_shared_weight_cache_test)
@@ -3465,9 +3648,20 @@ if (ENGINE_BUILD_TESTS OR ENGINE_BUILD_EXTENDED_TESTS OR ENGINE_BUILD_MODEL_TEST
     endif()
 
     if (ENGINE_ENABLE_CUDA)
+        add_engine_unittest(torch_random_cuda_multi_device_test
+            tests/unittests/test_torch_random_cuda_multi_device.cu)
+        target_include_directories(torch_random_cuda_multi_device_test PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src)
+        target_link_libraries(torch_random_cuda_multi_device_test PRIVATE CUDA::cudart)
+        add_test(NAME torch_random_cuda_multi_device_test COMMAND torch_random_cuda_multi_device_test)
+        set_tests_properties(torch_random_cuda_multi_device_test PROPERTIES SKIP_RETURN_CODE 77)
+
         add_engine_unittest(cuda_bias_fusion_test tests/unittests/test_cuda_bias_fusion.cpp)
         add_test(NAME cuda_bias_fusion_test COMMAND cuda_bias_fusion_test)
         set_tests_properties(cuda_bias_fusion_test PROPERTIES SKIP_RETURN_CODE 77)
+        add_engine_unittest(cuda_round_bf16_fusion_test tests/unittests/test_cuda_round_bf16_fusion.cpp)
+        add_test(NAME cuda_round_bf16_fusion_test COMMAND cuda_round_bf16_fusion_test)
+        set_tests_properties(cuda_round_bf16_fusion_test PROPERTIES SKIP_RETURN_CODE 77)
         add_engine_unittest(cuda_rope_rows_test tests/unittests/test_cuda_rope_rows.cpp)
         add_test(NAME cuda_rope_rows_test COMMAND cuda_rope_rows_test)
         set_tests_properties(cuda_rope_rows_test PROPERTIES SKIP_RETURN_CODE 77)
@@ -3537,6 +3731,11 @@ if (ENGINE_BUILD_TESTS OR ENGINE_BUILD_EXTENDED_TESTS OR ENGINE_BUILD_MODEL_TEST
     target_include_directories(parakeet_variant_config_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests/unittests)
     target_compile_definitions(parakeet_variant_config_test PRIVATE ENGINE_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME parakeet_variant_config_test COMMAND parakeet_variant_config_test)
+    if (parakeet_tdt IN_LIST AUDIOCPP_LINKED_MODELS)
+        add_engine_unittest(parakeet_bark3_session_test tests/parakeet_tdt/test_bark3_session.cpp)
+        target_include_directories(parakeet_bark3_session_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests/unittests)
+        add_test(NAME parakeet_bark3_session_test COMMAND parakeet_bark3_session_test)
+    endif()
 
     # The probe drives the registry/session path end to end, so it needs the
     # full parakeet_tdt model library.
@@ -3548,6 +3747,22 @@ if (ENGINE_BUILD_TESTS OR ENGINE_BUILD_EXTENDED_TESTS OR ENGINE_BUILD_MODEL_TEST
         add_engine_unittest(granite5asr_ctc_timestamps_test tests/granite5asr/test_ctc_timestamps.cpp)
         target_include_directories(granite5asr_ctc_timestamps_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests/unittests)
         add_test(NAME granite5asr_ctc_timestamps_test COMMAND granite5asr_ctc_timestamps_test)
+    endif()
+
+    if (ENGINE_BUILD_EXTENDED_TESTS AND ENGINE_ENABLE_METAL)
+        add_executable(metal_f32_matmul_test tests/unittests/test_metal_f32_matmul.cpp)
+        target_link_libraries(metal_f32_matmul_test PRIVATE ggml ggml-metal)
+        add_test(NAME metal_f32_matmul_test COMMAND metal_f32_matmul_test)
+        set_tests_properties(metal_f32_matmul_test PROPERTIES
+            SKIP_RETURN_CODE 77 LABELS "extended;metal")
+
+        add_executable(metal_im2col_test tests/unittests/test_metal_im2col.cpp)
+        target_link_libraries(metal_im2col_test PRIVATE ggml ggml-metal)
+        target_compile_definitions(metal_im2col_test PRIVATE
+            METAL_IM2COL_GOLDEN_PATH="${ENGINE_UNITTEST_ASSET_ROOT}/metal_im2col/original_metal_sha256.txt")
+        add_test(NAME metal_im2col_test COMMAND metal_im2col_test)
+        set_tests_properties(metal_im2col_test PROPERTIES
+            SKIP_RETURN_CODE 77 LABELS "extended;metal")
     endif()
 
     if (ENGINE_BUILD_TESTS)
@@ -3714,6 +3929,29 @@ if (ENGINE_BUILD_TESTS OR ENGINE_BUILD_EXTENDED_TESTS OR ENGINE_BUILD_MODEL_TEST
             endif()
         endif()
 
+        if(lfm3_audio IN_LIST AUDIOCPP_LINKED_MODELS)
+            foreach(lfm3_audio_test IN ITEMS
+                lfm3_audio_assets_test
+                lfm3_audio_tokenizer_test
+                lfm3_audio_prompt_test
+                lfm3_audio_chat_test
+                lfm3_audio_features_test
+                lfm3_audio_blocks_test
+                lfm3_audio_encoder_test
+                lfm3_audio_backbone_test
+                lfm3_audio_depth_test
+                lfm3_audio_sampling_test
+                lfm3_audio_codec_test
+                lfm3_audio_generator_test
+                lfm3_audio_session_test)
+                add_engine_unittest(${lfm3_audio_test} tests/community_models/lfm3_audio/${lfm3_audio_test}.cpp)
+                target_include_directories(${lfm3_audio_test} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests/unittests)
+                target_compile_definitions(${lfm3_audio_test} PRIVATE ENGINE_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}")
+                add_test(NAME ${lfm3_audio_test} COMMAND ${lfm3_audio_test})
+                set_tests_properties(${lfm3_audio_test} PROPERTIES SKIP_RETURN_CODE 77)
+            endforeach()
+        endif()
+
         add_engine_unittest(midi_file_test tests/unittests/test_midi_file.cpp)
         add_test(NAME midi_file_test COMMAND midi_file_test)
 
@@ -3726,11 +3964,18 @@ if (ENGINE_BUILD_TESTS OR ENGINE_BUILD_EXTENDED_TESTS OR ENGINE_BUILD_MODEL_TEST
         add_engine_unittest(hf_tokenizer_vocab_bounds_test tests/unittests/test_hf_tokenizer_vocab_bounds.cpp)
         add_test(NAME hf_tokenizer_vocab_bounds_test COMMAND hf_tokenizer_vocab_bounds_test)
 
+        add_engine_unittest(hf_tokenizer_sequence_decode_test tests/unittests/test_hf_tokenizer_sequence_decode.cpp)
+        add_test(NAME hf_tokenizer_sequence_decode_test COMMAND hf_tokenizer_sequence_decode_test)
+
         add_engine_unittest(safetensors_offsets_test tests/unittests/test_safetensors_offsets.cpp)
         add_test(NAME safetensors_offsets_test COMMAND safetensors_offsets_test)
 
         add_engine_unittest(safetensors_metadata_depth_test tests/unittests/test_safetensors_metadata_depth.cpp)
         add_test(NAME safetensors_metadata_depth_test COMMAND safetensors_metadata_depth_test)
+
+        add_engine_unittest(vad_loader_test tests/unittests/test_vad_loader.cpp)
+        target_compile_definitions(vad_loader_test PRIVATE ENGINE_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}")
+        add_test(NAME vad_loader_test COMMAND vad_loader_test)
 
         add_engine_unittest(torch_bin_storage_offset_test tests/unittests/test_torch_bin_storage_offset.cpp)
         add_test(NAME torch_bin_storage_offset_test COMMAND torch_bin_storage_offset_test)
@@ -3740,6 +3985,16 @@ if (ENGINE_BUILD_TESTS OR ENGINE_BUILD_EXTENDED_TESTS OR ENGINE_BUILD_MODEL_TEST
 
         add_engine_unittest(audio_chunking_test tests/unittests/test_audio_chunking.cpp)
         add_test(NAME audio_chunking_test COMMAND audio_chunking_test)
+
+        if (earshot_vad IN_LIST AUDIOCPP_LINKED_MODELS)
+            add_engine_unittest(earshot_vad_test tests/unittests/test_earshot_vad.cpp)
+            target_compile_definitions(earshot_vad_test PRIVATE
+                ENGINE_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}"
+                ENGINE_TEST_ASSET_ROOT="${ENGINE_UNITTEST_ASSET_ROOT}"
+            )
+            add_test(NAME earshot_vad_test COMMAND earshot_vad_test)
+        endif()
+
         add_engine_unittest(partial_text_test tests/unittests/test_partial_text.cpp)
         add_test(NAME partial_text_test COMMAND partial_text_test)
         add_engine_unittest(streaming_audio_test tests/unittests/test_streaming_audio.cpp)
@@ -3755,6 +4010,23 @@ if (ENGINE_BUILD_TESTS OR ENGINE_BUILD_EXTENDED_TESTS OR ENGINE_BUILD_MODEL_TEST
 
         add_engine_unittest(text_chunking_test tests/unittests/test_text_chunking.cpp)
         add_test(NAME text_chunking_test COMMAND text_chunking_test)
+        if (ming3_audio IN_LIST AUDIOCPP_LINKED_MODELS)
+            add_executable(ming3_audio_waveform_trim_test
+                tests/ming3_audio/test_ming3_audio_waveform_trim.cpp)
+            target_include_directories(ming3_audio_waveform_trim_test PRIVATE
+                ${CMAKE_CURRENT_SOURCE_DIR}/src/models/ming3_audio)
+            target_link_libraries(ming3_audio_waveform_trim_test PRIVATE engine_runtime ggml)
+            add_test(NAME ming3_audio_waveform_trim_test COMMAND ming3_audio_waveform_trim_test)
+        endif()
+
+        if (moss IN_LIST AUDIOCPP_LINKED_MODELS)
+            add_executable(moss_tts_nano_text_chunking_test
+                tests/moss_tts_nano/test_moss_tts_nano_text_chunking.cpp)
+            target_include_directories(moss_tts_nano_text_chunking_test PRIVATE
+                ${CMAKE_CURRENT_SOURCE_DIR}/src/models/moss/moss_tts_nano)
+            target_link_libraries(moss_tts_nano_text_chunking_test PRIVATE engine_runtime ggml)
+            add_test(NAME moss_tts_nano_text_chunking_test COMMAND moss_tts_nano_text_chunking_test)
+        endif()
 
         # Not a model test: it exercises the framework normalizer, but through the
         # supertonic tokenizer, so in a subset set it links a model symbol.
@@ -3803,7 +4075,13 @@ if (ENGINE_BUILD_TESTS OR ENGINE_BUILD_EXTENDED_TESTS OR ENGINE_BUILD_MODEL_TEST
         add_engine_unittest(encoder_module_test tests/unittests/test_encoder_modules.cpp)
         add_test(NAME encoder_module_test COMMAND encoder_module_test)
 
+        add_engine_unittest(snake_beta_test tests/unittests/test_snake_beta.cpp)
+        add_test(NAME snake_beta_test COMMAND snake_beta_test --log)
+
         add_engine_unittest(disk_expert_weight_store_test tests/unittests/test_disk_expert_weight_store.cpp)
+        if (ENGINE_ENABLE_OPENMP)
+            target_link_libraries(disk_expert_weight_store_test PRIVATE OpenMP::OpenMP_CXX)
+        endif()
         add_test(NAME disk_expert_weight_store_test COMMAND disk_expert_weight_store_test --log)
 
         add_engine_unittest(transpose_module_test tests/unittests/test_transpose_module.cpp)
@@ -3833,8 +4111,10 @@ if (ENGINE_BUILD_TESTS OR ENGINE_BUILD_EXTENDED_TESTS OR ENGINE_BUILD_MODEL_TEST
         add_engine_unittest(gguf_tensor_source_test tests/unittests/test_gguf_tensor_source.cpp)
         target_include_directories(gguf_tensor_source_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests/unittests)
         add_test(NAME gguf_tensor_source_test COMMAND gguf_tensor_source_test)
-        add_engine_unittest(lora_tensor_source_test tests/unittests/test_lora_tensor_source.cpp)
-        add_test(NAME lora_tensor_source_test COMMAND lora_tensor_source_test --log)
+        add_engine_unittest(weight_adapter_source_test tests/unittests/test_weight_adapter_source.cpp)
+        add_test(NAME weight_adapter_source_test COMMAND weight_adapter_source_test --log)
+        add_engine_unittest(weight_adapter_test tests/unittests/test_weight_adapter.cpp)
+        add_test(NAME weight_adapter_test COMMAND weight_adapter_test --log)
 
         add_engine_unittest(transformer_kv_ring_test tests/unittests/test_transformer_kv_ring.cpp)
         add_test(NAME transformer_kv_ring_test COMMAND transformer_kv_ring_test)
@@ -3844,8 +4124,17 @@ if (ENGINE_BUILD_TESTS OR ENGINE_BUILD_EXTENDED_TESTS OR ENGINE_BUILD_MODEL_TEST
         target_link_libraries(kokoro_word_timings_test PRIVATE engine_model_kokoro_tts)
         add_test(NAME kokoro_word_timings_test COMMAND kokoro_word_timings_test)
 
+        if (kokoro_tts IN_LIST AUDIOCPP_LINKED_MODELS)
+        add_engine_unittest(kokoro_voice_blending_test tests/unittests/test_kokoro_voice_blending.cpp)
+        add_test(NAME kokoro_voice_blending_test COMMAND kokoro_voice_blending_test)
+        endif()
+
         add_engine_unittest(quantize_chunking_test tests/unittests/test_quantize_chunking.cpp)
         add_test(NAME quantize_chunking_test COMMAND quantize_chunking_test)
+
+        add_engine_unittest(tq2_1_test tests/unittests/test_tq2_1.cpp)
+        target_include_directories(tq2_1_test PRIVATE external/ggml/src)
+        add_test(NAME tq2_1_test COMMAND tq2_1_test)
 
         add_engine_unittest(moss_ttsd_speakers_test tests/unittests/test_moss_ttsd_speakers.cpp)
         target_link_libraries(moss_ttsd_speakers_test PRIVATE engine_model_moss_ttsd)
@@ -4068,11 +4357,60 @@ if (ENGINE_BUILD_TESTS OR ENGINE_BUILD_EXTENDED_TESTS OR ENGINE_BUILD_MODEL_TEST
     endif()
 
     if (ENGINE_BUILD_MODEL_TESTS)
+        if (higgs_audio_tts IN_LIST AUDIOCPP_LINKED_MODELS)
+            add_engine_unittest(higgs_audio_tts_sampler_test tests/higgs_audio_tts/test_sampler.cpp)
+            add_test(NAME higgs_audio_tts_sampler_test COMMAND higgs_audio_tts_sampler_test --log)
+        endif()
+        if("ming3_audio" IN_LIST AUDIOCPP_LINKED_MODELS)
+            add_executable(ming3_audio_thinker_parity EXCLUDE_FROM_ALL tests/ming3_audio/thinker_parity.cpp)
+            target_link_libraries(ming3_audio_thinker_parity PRIVATE engine_runtime ggml)
+            add_executable(ming3_audio_talker_parity EXCLUDE_FROM_ALL tests/ming3_audio/talker_parity.cpp)
+            target_link_libraries(ming3_audio_talker_parity PRIVATE engine_runtime ggml)
+        endif()
+        if("ming3_tts" IN_LIST AUDIOCPP_LINKED_MODELS)
+            add_executable(ming3_tts_component_parity EXCLUDE_FROM_ALL tests/ming3_tts/component_parity.cpp)
+            target_link_libraries(ming3_tts_component_parity PRIVATE engine_runtime ggml)
+        endif()
+        if (ENGINE_ENABLE_RKNN)
+            # The board-only half of the RKNN path: residency pricing, the driver's cached
+            # self-report and a real context build. The repo ships no compiled engines, so the
+            # engine travels as a configure-time path and the test self-skips without one.
+            add_executable(rknn_sidecar_test tests/unittests/test_rknn_sidecar.cpp)
+            target_compile_definitions(rknn_sidecar_test PRIVATE ENGINE_HAVE_RKNN=1)
+            # The fake-engine section covers one sidecar per model, and sidecars are
+            # compiled per linked model -- so the section compiles per linked model too,
+            # or a composite without inflect_v2 (the default CI set) fails to link.
+            foreach(model IN LISTS AUDIOCPP_LINKED_MODELS)
+                string(TOUPPER "${model}" model_upper)
+                target_compile_definitions(rknn_sidecar_test PRIVATE
+                    "AUDIOCPP_TEST_HAS_MODEL_${model_upper}=1")
+            endforeach()
+            if (ENGINE_RKNN_INCLUDE_DIR)
+                target_include_directories(rknn_sidecar_test PRIVATE ${ENGINE_RKNN_INCLUDE_DIR})
+            endif()
+            target_link_libraries(rknn_sidecar_test PRIVATE engine_runtime ggml)
+            add_test(NAME rknn_sidecar_test COMMAND rknn_sidecar_test "${AUDIOCPP_RKNN_TEST_ENGINE}")
+            set_tests_properties(rknn_sidecar_test PROPERTIES SKIP_RETURN_CODE 77)
+        endif()
         if("plapre" IN_LIST AUDIOCPP_LINKED_MODELS)
             add_executable(plapre_codec_parity EXCLUDE_FROM_ALL tests/plapre/codec_parity.cpp)
             target_link_libraries(plapre_codec_parity PRIVATE engine_runtime ggml)
         endif()
 
+        if (latentsync IN_LIST AUDIOCPP_LINKED_MODELS)
+            add_executable(latentsync_graph_ops_test tests/latentsync/graph_ops.cpp)
+            target_link_libraries(latentsync_graph_ops_test PRIVATE engine_runtime ggml)
+            add_test(NAME latentsync_graph_ops_cpu COMMAND latentsync_graph_ops_test cpu)
+            if (GGML_METAL)
+                add_test(NAME latentsync_graph_ops_metal COMMAND latentsync_graph_ops_test metal)
+            endif()
+            add_executable(latentsync_component_parity tests/latentsync/component_parity.cpp)
+            target_link_libraries(latentsync_component_parity PRIVATE engine_runtime ggml)
+            if (ENGINE_ENABLE_OPENMP)
+                target_link_libraries(latentsync_graph_ops_test PRIVATE OpenMP::OpenMP_CXX)
+                target_link_libraries(latentsync_component_parity PRIVATE OpenMP::OpenMP_CXX)
+            endif()
+        endif()
         if (sanotts IN_LIST AUDIOCPP_LINKED_MODELS AND inflect_v2 IN_LIST AUDIOCPP_LINKED_MODELS)
             add_engine_unittest(espeak_frontend_probe tests/unittests/espeak_frontend_probe.cpp)
             if(AUDIOCPP_STATIC_ESPEAK)
@@ -4231,6 +4569,33 @@ if (ENGINE_BUILD_TESTS OR ENGINE_BUILD_EXTENDED_TESTS OR ENGINE_BUILD_MODEL_TEST
             )
         endif()
 
+        if (lfm3_audio IN_LIST AUDIOCPP_LINKED_MODELS)
+            foreach(lfm3_audio_model_test IN ITEMS
+                test_lfm3_audio_parity
+                test_lfm3_audio_asr
+                test_lfm3_audio_tts
+                test_lfm3_audio_s2s)
+                add_executable(${lfm3_audio_model_test} tests/lfm3_audio/${lfm3_audio_model_test}.cpp)
+                target_compile_definitions(${lfm3_audio_model_test} PRIVATE ENGINE_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}")
+                target_link_libraries(${lfm3_audio_model_test} PRIVATE engine_runtime ggml)
+                if (ENGINE_ENABLE_OPENMP)
+                    target_link_libraries(${lfm3_audio_model_test} PRIVATE OpenMP::OpenMP_CXX)
+                endif()
+                # The 418 s prefill check is slow on CPU F32; ctest skips it to stay within TIMEOUT,
+                # and the manual or matrix runs cover it.
+                set(lfm3_audio_model_test_args)
+                if (lfm3_audio_model_test MATCHES "_parity$")
+                    set(lfm3_audio_model_test_args --skip-long)
+                endif()
+                add_test(NAME ${lfm3_audio_model_test} COMMAND ${lfm3_audio_model_test} ${lfm3_audio_model_test_args})
+                # Needs models/LFM3-Audio-2B (and its fixtures); exits 125 (skip) without them.
+                set_tests_properties(${lfm3_audio_model_test} PROPERTIES
+                    SKIP_RETURN_CODE 125
+                    TIMEOUT 900
+                )
+            endforeach()
+        endif()
+
         if (sopro_tts IN_LIST AUDIOCPP_LINKED_MODELS)
             add_executable(test_sopro_tts_audio_ops
                 tests/sopro_tts/test_sopro_tts_audio_ops.cpp
@@ -4367,6 +4732,12 @@ if (ENGINE_BUILD_TESTS OR ENGINE_BUILD_EXTENDED_TESTS OR ENGINE_BUILD_MODEL_TEST
             target_link_libraries(moss_tts_nano_reference_cache_test PRIVATE OpenMP::OpenMP_CXX)
         endif()
         add_test(NAME moss_tts_nano_reference_cache_test COMMAND moss_tts_nano_reference_cache_test)
+        endif()
+
+        if (irodori_tts IN_LIST AUDIOCPP_LINKED_MODELS)
+        add_executable(irodori_schedule_test tests/irodori_tts/test_schedule.cpp)
+        target_link_libraries(irodori_schedule_test PRIVATE engine_runtime ggml)
+        add_test(NAME irodori_schedule_test COMMAND irodori_schedule_test --log)
         endif()
 
         add_executable(moss_tts_v15_prompt_parity
@@ -4569,6 +4940,11 @@ if (ENGINE_BUILD_TESTS OR ENGINE_BUILD_EXTENDED_TESTS OR ENGINE_BUILD_MODEL_TEST
             NAME minimax_music3_graph_release_policy_test
             COMMAND minimax_music3_graph_release_policy_test
         )
+
+        if (qwen3_tts IN_LIST AUDIOCPP_LINKED_MODELS)
+        # Real-weight integration test; invoked explicitly with --model GGUF.
+        add_engine_unittest(qwen3_tts_decoder_streaming_test tests/qwen3_tts/test_speech_decoder_streaming.cpp)
+        endif()
 
         if (qwen3_forced_aligner IN_LIST AUDIOCPP_LINKED_MODELS)
         add_engine_unittest(qwen3_forced_aligner_processor_test tests/unittests/test_qwen3_forced_aligner_processor.cpp)

@@ -1,17 +1,21 @@
 #include "engine/models/qwen3_tts/session.h"
 
+#include "engine/framework/core/attention_fallback.h"
 #include "engine/framework/debug/profiler.h"
+#include "engine/framework/rknn/engine.h"
 #include "engine/framework/runtime/options.h"
 #include "engine/framework/text/chunking.h"
 #include "engine/models/qwen3_tts/prompt_tts_custom_voice.h"
 #include "engine/models/qwen3_tts/prompt_tts_voice_design.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstring>
 #include <limits>
 #include <optional>
 #include <stdexcept>
+#include <string_view>
 #include <utility>
 
 namespace engine::models::qwen3_tts {
@@ -171,25 +175,81 @@ bool stitch_decode_from_options(const runtime::SessionOptions & options) {
     return false;
 }
 
-Qwen3TTSPerfMode perf_mode_from_options(const runtime::SessionOptions & options) {    if (const auto value = runtime::find_option(options.options, {"qwen3_tts.perf_mode"})) {
-        if (*value == "off" || *value == "standard") {
-            return Qwen3TTSPerfMode::Standard;
-        }
-        if (*value == "flash_attention") {
-            return Qwen3TTSPerfMode::FlashAttention;
-        }
-        throw std::runtime_error("Invalid qwen3_tts.perf_mode: " + *value);
-    }
-    return Qwen3TTSPerfMode::Standard;
-}
+struct PerfSettings {
+    // Unset selects manual prefill with contiguous-K/V flash cached decoding.
+    std::optional<core::AttentionPreference> attention = std::nullopt;
+    bool packed_projections = false;
+    bool optimized_kv_cache_write = false;
+    ggml_type kv_cache_type = GGML_TYPE_F32;
+    int64_t kv_cache_alignment = 1;
+    bool stateful_decoder = false;
+    engine::assets::TensorStorageType conv_weight_type = engine::assets::TensorStorageType::F32;
+};
 
-bool source_contains_q8_tensor(const assets::TensorSource & source) {
-    for (const auto & tensor : source.tensors()) {
-        if (assets::tensor_storage_type_for_dtype(tensor.dtype) == assets::TensorStorageType::Q8_0) {
-            return true;
-        }
+struct PerfPreset {
+    std::string_view name;
+    PerfSettings defaults;
+};
+
+constexpr std::array<PerfPreset, 3> kPerfPresets{{
+    {"off", {}},
+    {"flash_attention", {core::AttentionPreference::Flash}},
+    {"cuda_perf", {core::AttentionPreference::Flash, true, true, GGML_TYPE_F16, 256, true,
+                    engine::assets::TensorStorageType::F16}},
+}};
+
+PerfSettings perf_settings_from_options(const runtime::SessionOptions & options) {
+    auto name = runtime::find_option(options.options, {"qwen3_tts.perf_mode"}).value_or("off");
+    if (name == "standard") {
+        name = "off";
     }
-    return false;
+    const auto preset = std::find_if(kPerfPresets.begin(), kPerfPresets.end(),
+        [&](const auto & entry) { return entry.name == name; });
+    if (preset == kPerfPresets.end()) {
+        throw std::runtime_error("Invalid qwen3_tts.perf_mode: " + name);
+    }
+    auto settings = preset->defaults;
+    if (const auto value = runtime::find_option(options.options, {"qwen3_tts.attention"})) {
+        settings.attention = *value == "mixed"
+            ? std::nullopt
+            : std::optional{core::parse_attention_preference(*value, "qwen3_tts.attention")};
+    }
+    if (const auto value = runtime::find_option(options.options, {"qwen3_tts.packed_projections"})) {
+        settings.packed_projections = runtime::parse_bool_option(*value, "qwen3_tts.packed_projections");
+    }
+    if (const auto value = runtime::find_option(options.options, {"qwen3_tts.kv_cache_write"})) {
+        if (*value != "standard" && *value != "optimized") {
+            throw std::runtime_error("qwen3_tts.kv_cache_write must be standard or optimized");
+        }
+        settings.optimized_kv_cache_write = *value == "optimized";
+    }
+    if (const auto value = runtime::find_option(options.options, {"qwen3_tts.kv_cache_type"})) {
+        if (*value != "f32" && *value != "f16") {
+            throw std::runtime_error("qwen3_tts.kv_cache_type must be f32 or f16");
+        }
+        settings.kv_cache_type = *value == "f16" ? GGML_TYPE_F16 : GGML_TYPE_F32;
+    }
+    settings.kv_cache_alignment = runtime::parse_i64_option(
+        options.options, {"qwen3_tts.talker_kv_cache_alignment"}).value_or(settings.kv_cache_alignment);
+    if (settings.kv_cache_alignment <= 0) {
+        throw std::runtime_error("qwen3_tts.talker_kv_cache_alignment must be positive");
+    }
+    if (const auto value = runtime::find_option(options.options, {"qwen3_tts.stream_decoder"})) {
+        if (*value != "windowed" && *value != "stateful") {
+            throw std::runtime_error("qwen3_tts.stream_decoder must be windowed or stateful");
+        }
+        settings.stateful_decoder = *value == "stateful";
+    }
+    debug::trace_log_scalar("qwen3_tts.perf_mode", name);
+    debug::trace_log_scalar("qwen3_tts.packed_projections", settings.packed_projections);
+    debug::trace_log_scalar("qwen3_tts.kv_cache_write",
+        std::string_view(settings.optimized_kv_cache_write ? "optimized" : "standard"));
+    debug::trace_log_scalar("qwen3_tts.kv_cache_type",
+        std::string_view(settings.kv_cache_type == GGML_TYPE_F16 ? "f16" : "f32"));
+    debug::trace_log_scalar("qwen3_tts.talker_kv_cache_alignment", settings.kv_cache_alignment);
+    debug::trace_log_scalar("qwen3_tts.stream_decoder",
+        std::string_view(settings.stateful_decoder ? "stateful" : "windowed"));
+    return settings;
 }
 
 std::size_t voice_prompt_cache_slots_from_options(const runtime::SessionOptions & options) {
@@ -356,14 +416,21 @@ Qwen3TTSSession::Qwen3TTSSession(
     std::shared_ptr<const Qwen3TTSAssets> assets)
     : RuntimeSessionBase(options),
       task_(task),
-      assets_(require_assets(std::move(assets))),
+      assets_(apply_qwen3_tts_lora(require_assets(std::move(assets)), options.options)),
       mem_saver_(mem_saver_from_options(options)),
       stitch_decode_(stitch_decode_from_options(options)),
-      perf_mode_(perf_mode_from_options(options)),
       text_tokenizer_(assets_),
       talker_(assets_->config.talker),
       voice_prompt_context_(voice_prompt_backend_config(options)),
       voice_prompt_cache_(voice_prompt_cache_slots_from_options(options)) {
+    const auto perf = perf_settings_from_options(options);
+    conv_weight_storage_type_ = perf.conv_weight_type;
+    const bool flash_attention = perf.attention && core::resolve_flash_attention(
+        execution_context().backend(), assets_->config.talker.head_dim, *perf.attention);
+    const auto attention_mode = !perf.attention ? Qwen3TTSPerfMode::MixedAttention
+        : flash_attention ? Qwen3TTSPerfMode::FlashAttention : Qwen3TTSPerfMode::Standard;
+    debug::trace_log_scalar("qwen3_tts.attention",
+        std::string_view(!perf.attention ? "mixed" : flash_attention ? "flash" : "eager"));
     talker_graph_arena_bytes_ = runtime::parse_size_mb_option(
         options.options, {"qwen3_tts.talker_graph_arena_mb"}, talker_graph_arena_bytes_);
     speech_encoder_graph_arena_bytes_ = runtime::parse_size_mb_option(
@@ -405,18 +472,19 @@ Qwen3TTSSession::Qwen3TTSSession(
         "qwen3_tts.exec_plan",
         {{"speech_decoder", "ggml",
           {{"ggml", {options.backend.type}, {}, {}},
-           {"rknn", {}, {"main"}, {"first"}}}}});
+           {"rknn", {}, {"main"}, {"first", "window"}}}}});
     const auto & decoder_plan = exec_plan.at("speech_decoder");
     if (decoder_plan.impl == "rknn") {
-        rknn_decoder_.model_path = decoder_plan.artifacts.at("main");
+        const auto & model_dir = assets_->resources.model_directory();
+        rknn_decoder_.model_path = engine::rknn::resolve_engine_path(
+            decoder_plan.artifacts.at("main"), model_dir);
         if (const auto first = decoder_plan.artifacts.find("first"); first != decoder_plan.artifacts.end()) {
-            rknn_decoder_.first_model_path = first->second;
+            rknn_decoder_.first_model_path = engine::rknn::resolve_engine_path(first->second, model_dir);
         }
-    }
-    if (perf_mode_ == Qwen3TTSPerfMode::FlashAttention &&
-        (!source_contains_q8_tensor(*assets_->model_weights) ||
-         !source_contains_q8_tensor(*assets_->speech_tokenizer_weights))) {
-        throw std::runtime_error("qwen3_tts.perf_mode=flash_attention is supported only with Q8_0 GGUF weights");
+        if (const auto window = decoder_plan.artifacts.find("window");
+            window != decoder_plan.artifacts.end()) {
+            rknn_decoder_.window_path = engine::rknn::resolve_engine_path(window->second, model_dir);
+        }
     }
     for (const auto & [key, _] : options.options) {
         if (key.rfind("qwen3_tts.", 0) == 0 &&
@@ -428,6 +496,8 @@ Qwen3TTSSession::Qwen3TTSSession(
             key != "qwen3_tts.code_predictor_constant_context_mb" &&
             key != "qwen3_tts.speech_decoder_constant_context_mb" &&
             key != "qwen3_tts.weight_type" &&
+            key != "qwen3_tts.lora" &&
+            key != "qwen3_tts.lora_scale" &&
             key != "qwen3_tts.conv_weight_type" &&
             key != "qwen3_tts.talker_weight_type" &&
             key != "qwen3_tts.speech_encoder_weight_type" &&
@@ -435,6 +505,12 @@ Qwen3TTSSession::Qwen3TTSSession(
             key != "qwen3_tts.voice_prompt_cache_slots" &&
             key != "qwen3_tts.exec_plan" &&
             key != "qwen3_tts.perf_mode" &&
+            key != "qwen3_tts.attention" &&
+            key != "qwen3_tts.packed_projections" &&
+            key != "qwen3_tts.kv_cache_write" &&
+            key != "qwen3_tts.talker_kv_cache_alignment" &&
+            key != "qwen3_tts.kv_cache_type" &&
+            key != "qwen3_tts.stream_decoder" &&
             key != "qwen3_tts.stitch_decode" &&
             key != "qwen3_tts.mem_saver" &&
             key != "qwen3_tts.base_model_path") {
@@ -451,7 +527,11 @@ Qwen3TTSSession::Qwen3TTSSession(
         talker_constant_context_bytes_,
         code_predictor_constant_context_bytes_,
         talker_weight_storage_type_,
-        perf_mode_);
+        attention_mode,
+        perf.kv_cache_alignment,
+        perf.packed_projections,
+        perf.kv_cache_type,
+        perf.optimized_kv_cache_write);
     talker_step_ = talker_.create_step_runtime(
         talker_weights_,
         assets_->config.talker.max_position_embeddings,
@@ -463,8 +543,9 @@ Qwen3TTSSession::Qwen3TTSSession(
         speech_decoder_constant_context_bytes_,
         speech_decoder_weight_storage_type_,
         conv_weight_storage_type_,
-        perf_mode_,
-        rknn_decoder_);
+        attention_mode,
+        rknn_decoder_,
+        perf.stateful_decoder);
     if (assets_->config.variant == Qwen3TTSVariant::Base &&
         task_.task != runtime::VoiceTaskKind::Tts &&
         task_.task != runtime::VoiceTaskKind::VoiceCloning) {
@@ -487,7 +568,9 @@ Qwen3TTSSession::Qwen3TTSSession(
             speech_encoder_graph_arena_bytes_,
             speech_encoder_weight_storage_type_,
             conv_weight_storage_type_,
-            perf_mode_);
+            core::resolve_flash_attention(voice_prompt_context_.backend(), 64,
+                perf.attention.value_or(core::AttentionPreference::Eager))
+                ? Qwen3TTSPerfMode::FlashAttention : Qwen3TTSPerfMode::Standard);
         speaker_encoder_ = std::make_unique<Qwen3TTSEcapaTdnnEncoderRuntime>(
             base_assets_ != nullptr ? base_assets_ : assets_,
             voice_prompt_context_,
@@ -570,9 +653,9 @@ runtime::AudioBuffer Qwen3TTSSession::generate_audio(
             codes.codes.assign(window.data, window.data + window.frames() * window.frame_width);
             return speech_decoder_->decode_stream_chunk(codes, window.left_frames, stream_frames);
         }, stream_event_sink(), reference_codes ? reference_codes->codes : std::vector<int32_t>{},
-        // Stateful decoders (RKNN) carry history in a cache instead of a left
+        // Stateful decoders carry history in a cache instead of a left
         // context window: the controller resets it per utterance and drains the
-        // sub-group tail once at the end. No-ops on the ggml path.
+        // sub-group tail once at the end. No-ops on the windowed GGML path.
         [this] { speech_decoder_->reset_stream(); },
         [this] { return speech_decoder_->flush_stream(); });
     const auto talker_start = Clock::now();
