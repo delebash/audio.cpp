@@ -3502,6 +3502,11 @@ if (ENGINE_BUILD_TESTS OR ENGINE_BUILD_EXTENDED_TESTS OR ENGINE_BUILD_MODEL_TEST
     function(add_engine_unittest target source)
         add_executable(${target} ${source})
         target_link_libraries(${target} PRIVATE engine_runtime ggml)
+        if (MSVC)
+            # Our fork: tests hold UTF-8 literals (CJK, IPA); without /utf-8 MSVC reads them in
+            # the system code page (1252 here) and text_chunking_test, kokoro_word_timings_test fail.
+            target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/utf-8>)
+        endif()
     endfunction()
 
     if (magenta_realtime_2 IN_LIST AUDIOCPP_LINKED_MODELS)
@@ -4081,6 +4086,12 @@ if (ENGINE_BUILD_TESTS OR ENGINE_BUILD_EXTENDED_TESTS OR ENGINE_BUILD_MODEL_TEST
         add_engine_unittest(disk_expert_weight_store_test tests/unittests/test_disk_expert_weight_store.cpp)
         if (ENGINE_ENABLE_OPENMP)
             target_link_libraries(disk_expert_weight_store_test PRIVATE OpenMP::OpenMP_CXX)
+        endif()
+        if (MSVC)
+            # Our fork: /EHs, not /EHsc. The test catches what the eval callback throws through
+            # ggml_backend_sched_graph_compute; /EHsc assumes an extern "C" call never throws and
+            # drops that catch, so the exception reaches main's handler and the test fails.
+            target_compile_options(disk_expert_weight_store_test PRIVATE /EHc-)
         endif()
         add_test(NAME disk_expert_weight_store_test COMMAND disk_expert_weight_store_test --log)
 
