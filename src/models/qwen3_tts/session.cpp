@@ -158,6 +158,7 @@ core::BackendConfig voice_prompt_backend_config(const runtime::SessionOptions & 
     // Voice-clone prompt codes are discrete argmax outputs; keep this stage on CPU so CUDA TF32 math
     // cannot change the reference prompt that the main talker conditions on.
     config.type = core::BackendType::Cpu;
+    config.impl.clear();
     return config;
 }
 
@@ -518,11 +519,11 @@ Qwen3TTSSession::Qwen3TTSSession(
         }
     }
     base_assets_ = custom_voice_base_assets_from_options(options, assets_->config);
+    auto talker_backend = options.backend;
+    talker_backend.threads = std::max(1, talker_backend.threads);
     talker_weights_ = talker_.create_weights_runtime(
         assets_,
-        options.backend.type,
-        options.backend.device,
-        std::max(1, options.backend.threads),
+        talker_backend,
         talker_graph_arena_bytes_,
         talker_constant_context_bytes_,
         code_predictor_constant_context_bytes_,

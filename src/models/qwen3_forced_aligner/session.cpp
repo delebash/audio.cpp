@@ -1,5 +1,3 @@
-// Modified in delebash/audio.cpp (JustVoice's copy of audio.cpp), 2026-10-03: word spans at
-// the input audio's sample rate.
 #include "engine/models/qwen3_forced_aligner/session.h"
 
 #include "engine/framework/audio/chunking.h"
@@ -240,12 +238,11 @@ runtime::TaskResult Qwen3ForcedAlignerSession::run_single(const runtime::TaskReq
         timestamp_ids.push_back(id);
     }
     const auto postprocess_start = Clock::now();
-    // Word spans are sample positions of the INPUT audio: the server divides them by the
-    // input rate, and `audio_frames` (the clamp below) counts input frames. They were built
-    // at the model's 16 kHz, so 24 kHz input came back with times 2/3 of real.
     auto timestamps = processor_.parse_timestamps(
         align_prompt.words,
         timestamp_ids,
+        // Timestamps are milliseconds of real audio time; convert them into the
+        // uploaded audio's sample domain, not the frontend's 16 kHz frame.
         request.audio_input->sample_rate,
         audio_frames,
         request_clamp_timestamps_to_audio(request));
