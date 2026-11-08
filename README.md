@@ -186,6 +186,8 @@ Model weights keep the license of their original release, which is separate from
 | **midashenglm_gen** | Music, SFX | auto | MiDashengLM-Gen structured-prompt generation for speech, music, sound effects, and ambience | GGUF F32/Q8 |
 | **minimax_h3** | Video, Music, TTS/Dialogue | auto | MiniMax-H3 Q4_K with optional INT8 ConvRot DiT | GGUF Q4/INT8 |
 | **minimax_music3** | Music | auto | MiniMax Music 3 text-to-music generation with lyrics conditioning | GGUF Q4/Q8 |
+| **moss_soundeffect** | SFX | en, zh | [MOSS-SoundEffect v2](docs/models/moss_soundeffect.md) text-conditioned sound effects | GGUF BF16/Q8 |
+| **mulacover** | Music | multilingual | [MuLaCover](docs/models/mulacover.md) cover-song generation from reference audio or melody/chord MIDI, with new lyrics and style | GGUF 16/Q8 |
 | **soulx_flashhead** | Audio-to-video | lang agnostic | [SoulX-FlashHead Lite](docs/models/soulx_flashhead.md) audio-driven portrait video generation | GGUF Q8/BF16, Stream |
 | **stable_audio** | Music, SFX, Edit | en | Stable Audio 3 Small Music<br>Stable Audio 3 Small SFX<br>Stable Audio 3 Medium | GGUF 16/Q8 |
 | **vevo2** | TTS, Music, VC, Edit | en, zh | Vevo2 with Qwen2.5-0.5B AR model | GGUF 16 |
@@ -927,6 +929,7 @@ Have a project using audio.cpp? Submit a PR or let me know, and I’ll be happy 
 - [ComeCut](https://github.com/juntaosun/ComeCut) A Lightweight Video Editor. Free for the web, desktop, and more, with features inspired by editors like CapCut..  
 - [OpenDub](https://github.com/estebanstifli/OpenDub) is an open-source desktop video dubbing studio for Windows, Linux, and macOS. It uses audio.cpp for dialogue separation, transcription, alignment, speaker diarization, and IndexTTS2.5 speech generation, with editable segments, voice and emotion references, synchronized playback, and video/audio export.
 - [pyVideoTrans](https://github.com/jianchang512/pyvideotrans): A one-stop video translation and dubbing tool that integrates audio.cpp as one of its built-in dubbing options.
+- [LocalText2Voice](https://github.com/estebanstifli/LocalText2Voice) is a free, open-source desktop app for long-form audiobooks, podcasts and narrated videos. Features include multi-voice scripts, voice cloning and design, emotion controls, segment editing and regeneration, optional Whisper verification, M4B/MP3 export, subtitles, music mixing, a Video Storyboard beta and MCP automation.
 
 ## Performance Metrics
 

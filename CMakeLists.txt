@@ -673,6 +673,7 @@ add_library(engine_core OBJECT
     src/framework/modules/speaker_encoders/ecapa_tdnn_runtime.cpp
     src/framework/modules/speaker_encoders/titanet_runtime.cpp
     src/framework/codecs/fsq_audio_codec_runtime.cpp
+    src/framework/codecs/heartcodec_runtime.cpp
     src/framework/codecs/fish_dac_codec_runtime.cpp
     src/framework/codecs/mel_latent_vae44k_runtime.cpp
     src/framework/codecs/mimi_codec_runtime.cpp
@@ -1174,6 +1175,7 @@ audiocpp_add_model(sanotts
         src/community_models/sanotts/piper_runtime.cpp
         src/community_models/sanotts/runtime.cpp
         src/community_models/sanotts/session.cpp
+        src/community_models/sanotts/word_timestamps.cpp
     INCLUDES
         engine/community_models/sanotts/session.h
     LOADERS
@@ -1436,6 +1438,21 @@ audiocpp_add_model(neutts
         engine/models/neutts/session.h
     LOADERS
         engine::models::neutts::make_neutts_loader
+)
+
+audiocpp_add_model(moss_soundeffect
+    SOURCES
+        src/models/moss_soundeffect/assets.cpp
+        src/models/moss_soundeffect/dit.cpp
+        src/models/moss_soundeffect/vae.cpp
+        src/models/moss_soundeffect/text_encoder.cpp
+        src/models/moss_soundeffect/session.cpp
+    INCLUDES
+        engine/models/moss_soundeffect/session.h
+    LOADERS
+        engine::models::moss_soundeffect::make_moss_soundeffect_loader
+    OBJECT_LIBRARIES
+        utf8proc_vendor
 )
 
 audiocpp_add_model(echo_tts
@@ -1898,7 +1915,6 @@ audiocpp_add_model(sense_asr
 audiocpp_add_model(heartmula
     SOURCES
         src/models/heartmula/assets.cpp
-        src/models/heartmula/codec.cpp
         src/models/heartmula/generator.cpp
         src/models/heartmula/mula.cpp
         src/models/heartmula/session.cpp
@@ -1907,6 +1923,24 @@ audiocpp_add_model(heartmula
         engine/models/heartmula/session.h
     LOADERS
         engine::models::heartmula::make_heartmula_loader
+)
+
+audiocpp_add_model(mulacover
+    SOURCES
+        src/models/mulacover/ar.cpp
+        src/models/mulacover/assets.cpp
+        src/models/mulacover/chord.cpp
+        src/models/mulacover/conditioning.cpp
+        src/models/mulacover/frontend.cpp
+        src/models/mulacover/prompt.cpp
+        src/models/mulacover/session.cpp
+        src/models/mulacover/style_encoder.cpp
+        src/models/mulacover/symbolic.cpp
+        src/models/mulacover/transcriber.cpp
+    INCLUDES
+        engine/models/mulacover/session.h
+    LOADERS
+        engine::models::mulacover::make_mulacover_loader
 )
 
 audiocpp_add_model(higgs_audio_stt
@@ -2986,8 +3020,26 @@ target_include_directories(cjson_vendor PUBLIC
 # source checkout or an external model_specs directory.
 if (AUDIOCPP_BUILD_NATIVE_MODEL_MANAGER)
     add_subdirectory(external/cpp-httplib)
+
+    # Hugging Face Xet xorb chunks are LZ4-frame compressed.
+    add_library(lz4_vendor STATIC
+        external/lz4/lz4.c
+        external/lz4/lz4frame.c
+        external/lz4/lz4hc.c
+        external/lz4/xxhash.c
+    )
+    target_include_directories(lz4_vendor PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/external/lz4)
+    set_property(TARGET lz4_vendor PROPERTY COMPILE_WARNING_AS_ERROR OFF)
+    if (MSVC)
+        target_compile_options(lz4_vendor PRIVATE /w)
+    else()
+        target_compile_options(lz4_vendor PRIVATE -w)
+    endif()
+
     add_library(audiocpp_package_manager STATIC
         src/framework/package_manager/manager.cpp
+        src/framework/package_manager/http_util.cpp
+        src/framework/package_manager/xet.cpp
         src/framework/io/json.cpp
         src/framework/io/filesystem.cpp
     )
@@ -3000,6 +3052,7 @@ if (AUDIOCPP_BUILD_NATIVE_MODEL_MANAGER)
     target_link_libraries(audiocpp_package_manager PRIVATE
         cjson_vendor
         audiocpp_cpp_httplib
+        lz4_vendor
     )
 endif()
 
@@ -3562,6 +3615,7 @@ if (ENGINE_BUILD_WARMBENCH)
     add_engine_warmbench(nemotron_asr_warm_bench tests/nemotron_asr/nemotron_asr_warm_bench.cpp)
     add_engine_warmbench(neutts_warm_bench tests/neutts/neutts_warm_bench.cpp)
     add_engine_warmbench(omnivoice_warm_bench tests/omnivoice/omnivoice_warm_bench.cpp)
+    add_engine_warmbench(omnivoice_batch_test tests/omnivoice/omnivoice_batch_test.cpp)
     add_engine_warmbench(outetts_warm_bench tests/outetts/outetts_warm_bench.cpp)
     add_engine_warmbench(parakeet_warm_bench tests/parakeet_tdt/parakeet_warm_bench.cpp)
     add_engine_warmbench(glm_tts_tokenizer_probe tests/glm_tts/glm_tts_tokenizer_probe.cpp)
@@ -3651,6 +3705,19 @@ if (ENGINE_BUILD_TESTS OR ENGINE_BUILD_EXTENDED_TESTS OR ENGINE_BUILD_MODEL_TEST
         add_engine_unittest(index_tts2_text_controls_probe tests/index_tts2/text_controls_probe.cpp)
     endif()
 
+    if (ENGINE_BUILD_MODEL_TESTS AND omnivoice IN_LIST AUDIOCPP_LINKED_MODELS)
+        # Batching and fast-path parity; registered with ctest when a local
+        # OmniVoice model directory is configured.
+        add_engine_unittest(omnivoice_batch_parity_test tests/omnivoice/batch_parity_test.cpp)
+        set(AUDIOCPP_OMNIVOICE_TEST_MODEL "" CACHE PATH "Local OmniVoice model directory for integration tests")
+        if (AUDIOCPP_OMNIVOICE_TEST_MODEL)
+            add_test(NAME omnivoice_batch_parity COMMAND omnivoice_batch_parity_test
+                --model "${AUDIOCPP_OMNIVOICE_TEST_MODEL}"
+                --clone-audio "${CMAKE_CURRENT_SOURCE_DIR}/tests/omnivoice/assets/ref_audio_02.wav"
+                --reference-text-file "${CMAKE_CURRENT_SOURCE_DIR}/tests/omnivoice/assets/ref_text_02.txt")
+        endif()
+    endif()
+
     if (ENGINE_BUILD_MODEL_TESTS AND ENGINE_ENABLE_WEBGPU AND nemotron_asr IN_LIST AUDIOCPP_LINKED_MODELS)
         # Manual parity test: requires an external Nemotron GGUF via --model.
         add_engine_unittest(nemotron_asr_webgpu_rnnt_test tests/nemotron_asr/webgpu_rnnt_test.cpp)
@@ -3661,6 +3728,25 @@ if (ENGINE_BUILD_TESTS OR ENGINE_BUILD_EXTENDED_TESTS OR ENGINE_BUILD_MODEL_TEST
         # Reuse GGML's CPU-reference operator harness for the opt-in backend.
         add_executable(test-backend-ops external/ggml/tests/test-backend-ops.cpp)
         target_link_libraries(test-backend-ops PRIVATE ggml Threads::Threads)
+    endif()
+
+    if (ENGINE_BUILD_MODEL_TESTS AND moss_soundeffect IN_LIST AUDIOCPP_LINKED_MODELS)
+        add_executable(moss_soundeffect_parity tests/moss_soundeffect/validate_reference.cpp)
+        target_link_libraries(moss_soundeffect_parity PRIVATE engine_runtime ggml)
+    endif()
+
+    if (ENGINE_BUILD_MODEL_TESTS AND heartmula IN_LIST AUDIOCPP_LINKED_MODELS)
+        add_executable(heartmula_codec_lifecycle tests/heartmula/codec_lifecycle.cpp)
+        target_link_libraries(heartmula_codec_lifecycle PRIVATE engine_runtime ggml)
+    endif()
+
+    if (ENGINE_BUILD_MODEL_TESTS AND mulacover IN_LIST AUDIOCPP_LINKED_MODELS)
+        add_executable(mulacover_components tests/mulacover/components.cpp)
+        target_link_libraries(mulacover_components PRIVATE engine_runtime ggml)
+        add_executable(mulacover_waveform tests/mulacover/waveform.cpp)
+        target_link_libraries(mulacover_waveform PRIVATE engine_runtime ggml)
+        add_executable(mulacover_codec tests/mulacover/codec.cpp)
+        target_link_libraries(mulacover_codec PRIVATE engine_runtime ggml)
     endif()
 
     if (ENGINE_BUILD_MODEL_TESTS AND magenta_realtime_2 IN_LIST AUDIOCPP_LINKED_MODELS)
@@ -3764,6 +3850,12 @@ if (ENGINE_BUILD_TESTS OR ENGINE_BUILD_EXTENDED_TESTS OR ENGINE_BUILD_MODEL_TEST
         add_engine_unittest(sanotts_neon_decoder_test tests/unittests/test_sanotts_neon_decoder.cpp)
         target_include_directories(sanotts_neon_decoder_test PRIVATE tests/unittests src/community_models/sanotts)
         add_test(NAME sanotts_neon_decoder_test COMMAND sanotts_neon_decoder_test)
+    endif()
+    if (ENGINE_BUILD_MODEL_TESTS AND sanotts IN_LIST AUDIOCPP_LINKED_MODELS)
+        add_engine_unittest(sanotts_word_timestamps_test tests/unittests/test_sanotts_word_timestamps.cpp)
+        target_sources(sanotts_word_timestamps_test PRIVATE src/community_models/sanotts/word_timestamps.cpp)
+        target_include_directories(sanotts_word_timestamps_test PRIVATE tests/unittests src/community_models/sanotts)
+        add_test(NAME sanotts_word_timestamps_test COMMAND sanotts_word_timestamps_test)
     endif()
     if (ENGINE_BUILD_MODEL_TESTS AND open_wake_word IN_LIST AUDIOCPP_LINKED_MODELS)
         add_engine_unittest(open_wake_word_runtime_test tests/open_wake_word/test_runtime_parity.cpp)
@@ -4519,6 +4611,13 @@ if (ENGINE_BUILD_TESTS OR ENGINE_BUILD_EXTENDED_TESTS OR ENGINE_BUILD_MODEL_TEST
             target_link_libraries(package_manager_http_test PRIVATE
                 Threads::Threads audiocpp_package_manager audiocpp_cpp_httplib)
             add_test(NAME package_manager_http_test COMMAND package_manager_http_test)
+
+            add_executable(package_manager_xet_test tests/unittests/test_package_manager_xet.cpp)
+            target_include_directories(package_manager_xet_test PRIVATE
+                ${CMAKE_CURRENT_SOURCE_DIR}/src/framework/package_manager)
+            target_link_libraries(package_manager_xet_test PRIVATE
+                Threads::Threads audiocpp_package_manager audiocpp_cpp_httplib lz4_vendor)
+            add_test(NAME package_manager_xet_test COMMAND package_manager_xet_test)
         endif()
     endif()
 

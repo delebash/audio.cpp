@@ -85,6 +85,7 @@ struct ServerConfig {
     // its own model files starts with this and an empty models array, so a model it
     // downloads later is added without restarting the process.
     bool model_management = false;
+    std::optional<std::filesystem::path> models_root;
     engine::core::BackendType backend = engine::core::BackendType::Cuda;
     std::string backend_impl;
     int device = 0;
