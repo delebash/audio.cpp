@@ -7,11 +7,11 @@
 # with the heavy CUDA runtime DLLs in a separate cudart...zip, and the release
 # job publishes.
 #
-# Semantic-version, tag-driven releases. The workflow runs when a `v*` (semver)
-# tag is pushed (drafting a Release and Publishing it) or when run manually
-# from the Actions UI with an explicit version. Publishing attaches the built
-# binaries to that version's GitHub Release. There is NO auto-release on every
-# push to `main`.
+# Semantic-version releases, run by hand only (our fork: nothing builds by
+# itself — no tag, push, schedule or PR trigger): run it from the Actions UI or
+# `gh workflow run release.yml --ref jv -f version=<v…> -f publish=true`. With
+# publish on, it creates and pushes the version's tag itself and attaches the
+# built binaries to that version's GitHub Release; off, it is a build-only dry run.
 
 name: Release
 
@@ -38,9 +38,6 @@ on:
         required: false
         default: ''
         type: string
-  push:
-    tags:
-      - 'v*'
 
 env:
   GH_TOKEN: ${{ github.token }}
@@ -60,8 +57,7 @@ jobs:
     outputs:
       should_release: ${{ steps.check.outputs.should_release }}
     steps:
-      # The only triggers are a manually-run workflow or a pushed `v*` tag -
-      # both are intentional, so always proceed.
+      # The only trigger is a manually-run workflow - intentional, so always proceed.
       - id: check
         run: echo "should_release=true" >> "$GITHUB_OUTPUT"
 
