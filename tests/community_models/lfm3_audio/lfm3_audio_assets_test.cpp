@@ -349,41 +349,45 @@ void test_published_package() {
     const auto loader = lfm3::make_lfm3_audio_loader();
     require(loader->can_load(load) && loader->inspect(load).metadata.family == "lfm3_audio", "the loader claims the published directory");
 
-    const auto reference = lfm3::load_lfm3_audio_assets(package.root);
-    const auto published = lfm3::load_lfm3_audio_assets(dir);
-    require_eq(describe(*published), describe(*reference), "the published layout gives the checkpoint's configs");
-    require(published->model->has_tensor("token_embd.weight") && !published->model->has_tensor("lfm.model.embed_tokens.weight"),
-            "GGUF backbone retains its native tensor names");
-    require(published->audio_weights->has_tensor("a.gen.code.embd.weight") && !published->audio_weights->has_tensor("depth_embeddings.0.embedding.weight"),
-            "GGUF codebooks remain stacked in the native source");
-    const auto & raw = *published->audio_weights;
-    require(raw.require_f32("a.gen.code.proj_in.weight") == package.model.at("depth_linear.weight").values,
-            "GGUF depth projection retains the checkpoint values");
-    const auto & speech = published->generation.speech;
-    require(speech.temperature == 0.9f && speech.top_k == 7 && speech.repetition_penalty == 1.25f && speech.repetition_window == 99,
-            "speech sampling comes from clip.gen.audio.sampling.*");
-    const auto & card = reference->generation.speech;
-    require(card.temperature == 1.0f && card.top_k == 128 && card.repetition_penalty == 1.1f && card.repetition_window == 4096,
-            "without audio_* in generation_config.json the model card's settings apply");
-
-    const lfm3::Lfm3Tokenizer from_json(reference->tokenizer_json);
-    const lfm3::Lfm3Tokenizer from_gguf(published->vocabulary);
-    for (const std::string text : {"<|im_start|>user\nthe user<|audio|><|im_end|>", "<think>the</think> us er",
-                                   "<|tool_call_start|>the<|tool_call_end|>", "\xc3\xa9t\xc3\xa9 ok"}) {
-        const auto ids = from_json.encode(text);
-        require(from_gguf.encode(text) == ids, "the GGUF vocabulary encodes " + text + " as tokenizer.json");
-        require(from_gguf.decode(ids) == from_json.decode(ids) && from_gguf.decode(ids, false) == from_json.decode(ids, false),
-                "the GGUF vocabulary decodes " + text + " as tokenizer.json");
+    // The loaded assets map the backbone GGUF; Windows refuses to rewrite a file while a view of it is mapped
+    // (ERROR_USER_MAPPED_FILE), so they are released before the count checks below rewrite it.
+    {
+        const auto reference = lfm3::load_lfm3_audio_assets(package.root);
+        const auto published = lfm3::load_lfm3_audio_assets(dir);
+        require_eq(describe(*published), describe(*reference), "the published layout gives the checkpoint's configs");
+        require(published->model->has_tensor("token_embd.weight") && !published->model->has_tensor("lfm.model.embed_tokens.weight"),
+                "GGUF backbone retains its native tensor names");
+        require(published->audio_weights->has_tensor("a.gen.code.embd.weight") && !published->audio_weights->has_tensor("depth_embeddings.0.embedding.weight"),
+                "GGUF codebooks remain stacked in the native source");
+        const auto & raw = *published->audio_weights;
+        require(raw.require_f32("a.gen.code.proj_in.weight") == package.model.at("depth_linear.weight").values,
+                "GGUF depth projection retains the checkpoint values");
+        const auto & speech = published->generation.speech;
+        require(speech.temperature == 0.9f && speech.top_k == 7 && speech.repetition_penalty == 1.25f && speech.repetition_window == 99,
+                "speech sampling comes from clip.gen.audio.sampling.*");
+        const auto & card = reference->generation.speech;
+        require(card.temperature == 1.0f && card.top_k == 128 && card.repetition_penalty == 1.1f && card.repetition_window == 4096,
+                "without audio_* in generation_config.json the model card's settings apply");
+    
+        const lfm3::Lfm3Tokenizer from_json(reference->tokenizer_json);
+        const lfm3::Lfm3Tokenizer from_gguf(published->vocabulary);
+        for (const std::string text : {"<|im_start|>user\nthe user<|audio|><|im_end|>", "<think>the</think> us er",
+                                       "<|tool_call_start|>the<|tool_call_end|>", "\xc3\xa9t\xc3\xa9 ok"}) {
+            const auto ids = from_json.encode(text);
+            require(from_gguf.encode(text) == ids, "the GGUF vocabulary encodes " + text + " as tokenizer.json");
+            require(from_gguf.decode(ids) == from_json.decode(ids) && from_gguf.decode(ids, false) == from_json.decode(ids, false),
+                    "the GGUF vocabulary decodes " + text + " as tokenizer.json");
+        }
+    
+        // Two backbones: the directory is ambiguous; a 4-bit backbone takes the Q8_0 mmproj, as Liquid pairs them.
+        std::filesystem::copy_file(backbone, dir / "LFM3-Audio-2B-Q4_0.gguf");
+        std::filesystem::copy_file(dir / "mmproj-LFM3-Audio-2B-F32.gguf", dir / "mmproj-LFM3-Audio-2B-Q8_0.gguf");
+        lfm3_audio_test::require_throws_with([&] { (void) lfm3::load_lfm3_audio_assets(dir); }, "several LFM3 backbone GGUFs", "two backbones");
+        const auto q4 = lfm3::load_lfm3_audio_assets(dir / "LFM3-Audio-2B-Q4_0.gguf");
+        require_eq(q4->codec_weights->source_path().filename().string(), std::string("mmproj-LFM3-Audio-2B-Q8_0.gguf"), "the 4-bit pairing");
+        require_eq(lfm3::load_lfm3_audio_assets(backbone)->codec_weights->source_path().filename().string(),
+                   std::string("mmproj-LFM3-Audio-2B-F32.gguf"), "the same-name pairing");
     }
-
-    // Two backbones: the directory is ambiguous; a 4-bit backbone takes the Q8_0 mmproj, as Liquid pairs them.
-    std::filesystem::copy_file(backbone, dir / "LFM3-Audio-2B-Q4_0.gguf");
-    std::filesystem::copy_file(dir / "mmproj-LFM3-Audio-2B-F32.gguf", dir / "mmproj-LFM3-Audio-2B-Q8_0.gguf");
-    lfm3_audio_test::require_throws_with([&] { (void) lfm3::load_lfm3_audio_assets(dir); }, "several LFM3 backbone GGUFs", "two backbones");
-    const auto q4 = lfm3::load_lfm3_audio_assets(dir / "LFM3-Audio-2B-Q4_0.gguf");
-    require_eq(q4->codec_weights->source_path().filename().string(), std::string("mmproj-LFM3-Audio-2B-Q8_0.gguf"), "the 4-bit pairing");
-    require_eq(lfm3::load_lfm3_audio_assets(backbone)->codec_weights->source_path().filename().string(),
-               std::string("mmproj-LFM3-Audio-2B-F32.gguf"), "the same-name pairing");
 
     // Counts that size loops and allocations, or divide, fail with their key instead of hanging or crashing.
     for (const auto & [key, value] : std::map<std::string, uint32_t>{
