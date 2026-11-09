@@ -12,7 +12,7 @@ Lost in a sea of audio model names, papers, and codebases? Explore **100+ audio 
 
 [![Hugging Face](https://img.shields.io/badge/Hugging_Face-FFD21E?logo=huggingface&logoColor=black)](https://huggingface.co/audio-cpp/audio.cpp-gguf) [![ModelScope](https://img.shields.io/badge/ModelScope-624AFF)](https://www.modelscope.cn/models/HereIsMark/audio.cpp-gguf) [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/0xShug0/audio.cpp/blob/main/Notebooks/colab_audio_cpp.ipynb) [![Open Architecture Atlas](https://img.shields.io/badge/Open-Architecture_Atlas-007e70?logo=huggingface&logoColor=white)](https://huggingface.co/spaces/audio-cpp/Audio-Model-Architecture-Atlas)
 
-**Supported backends:** [![CPU](https://img.shields.io/badge/CPU-555555)](#linux-build) [![CUDA](https://img.shields.io/badge/CUDA-76B900?logo=nvidia&logoColor=white)](#linux-build) [![HIP/ROCm](https://img.shields.io/badge/HIP%2FROCm-ED1C24?logo=amd&logoColor=white)](#hiprocm-build) [![Vulkan](https://img.shields.io/badge/Vulkan-AC162C?logo=vulkan&logoColor=white)](#linux-build) [![Metal](https://img.shields.io/badge/Metal-000000?logo=apple&logoColor=white)](#metal-build) [![WebGPU](https://img.shields.io/badge/WebGPU-005A9C?logo=webgpu&logoColor=white)](#webgpu-build)
+**Supported backends:** [![CPU](https://img.shields.io/badge/CPU-555555)](#linux-build) [![CUDA](https://img.shields.io/badge/CUDA-76B900?logo=nvidia&logoColor=white)](#linux-build) [![HIP/ROCm](https://img.shields.io/badge/HIP%2FROCm-ED1C24?logo=amd&logoColor=white)](#hiprocm-build) [![Vulkan](https://img.shields.io/badge/Vulkan-AC162C?logo=vulkan&logoColor=white)](#linux-build) [![Metal](https://img.shields.io/badge/Metal-000000?logo=apple&logoColor=white)](#metal-build) [![WebGPU](https://img.shields.io/badge/WebGPU-005A9C?logo=webgpu&logoColor=white)](#webgpu-build) [![SYCL](https://img.shields.io/badge/SYCL-0071C5?logo=intel&logoColor=white)](#sycl-build)
 
 
 > [!TIP]
@@ -40,7 +40,7 @@ audio.cpp is built for real end-to-end execution rather than one-off model demos
 
 ⭐ **Performance.** Reusable sessions, cached graphs, and batched offline inference. Selected TTS paths run **1.8–8×** faster than Python; tested Q8 packages deliver up to **1.53×** speedup and **37%** lower peak VRAM versus 16-bit weights ([report](docs/reports/gguf_q8_performance.md)). Supertonic 3 generates **10 hours** of audio in **3 minutes** on RTX 5090 ([demo](https://www.reddit.com/r/LocalLLaMA/comments/1uwpvt9/audiocpp_10_hours_of_audio_generated_in_3_minutes/)), while Nemotron 3.5 ASR matches WER at roughly **¼** the wall time in the [TranscrIA benchmark](https://github.com/Martossien/transcria/blob/main/docs/STT_BENCHMARK_REAL_MEETINGS.md). audio.cpp is among the fastest inference engines for streaming TTS latency on the [Open TTS Leaderboard](https://huggingface.co/spaces/hf-audio/open_tts_leaderboard).
 
-⭐ **Portability.** A native `ggml` runtime supporting CUDA, HIP/ROCm, Vulkan, Metal, WebGPU, and CPU through common CLI and server interfaces.
+⭐ **Portability.** A native `ggml` runtime supporting CUDA, HIP/ROCm, Vulkan, Metal, WebGPU, SYCL, and CPU through common CLI and server interfaces.
 
 ⭐ **Hardware-specific optimizations.** ARM NEON acceleration, Rockchip RKNN component execution, experimental HIP kernels, and CUDA, Metal, and Vulkan optimizations. Model-specific `perf_mode` presets expose optional fast paths for supported hardware.
 
@@ -236,7 +236,7 @@ Community model ports live under `community_models` to make the ownership bounda
 | **realtime_reuse** | S2S | lang agnostic | GGUF F32, Stream | [@0xShug0](https://github.com/0xShug0) | [Real-time RE-USE](docs/models/realtime_reuse.md) causal speech restoration with 30 exit-layer/lookahead configurations |
 | **reuse** | S2S | lang agnostic | GGUF F32/F16/Q8_0 | [@0xShug0](https://github.com/0xShug0) | RE-USE speech restoration |
 | **sanotts** | TTS | en, vi, id, cs, de, es, fr, it, pt, ro, ru, tr, ne, hi | GGUF FP32 | Ashish [@voidash](https://github.com/voidash) | [sanoTTS voice family](docs/models/sanotts.md) eighteen voices from 294k to 2.27M parameters, native offline synthesis |
-| **sense_asr** | ASR | auto, zh, en, yue, ja, ko, pt, ru, es, it, fr, de, nl, pl, tr, ar, hi, vi, th, id, ms, fa, nospeech | GGUF Q8, Stream | Jason Chen [@jasonchen31](https://github.com/jasonchen31), [@LauraGPT](https://github.com/LauraGPT) / FunASR | [SenseVoice-Small](docs/models/sense_asr.md) offline/streaming SAN-M + CTC transcription with event/emotion/language tags and ITN |
+| **sense_asr** | ASR | auto, zh, en, yue, ja, ko, pt, ru, es, it, fr, de, nl, pl, tr, ar, hi, vi, th, id, ms, fa, nospeech | GGUF Q8, Stream | Jason Chen [@jasonchen31](https://github.com/jasonchen31), [@LauraGPT](https://github.com/LauraGPT) / FunASR | [SenseVoice-Small](docs/models/sense_asr.md) offline/streaming SAN-M + CTC transcription with event/emotion/language tags, ITN and word timestamps |
 | **soprano_tts** | TTS | en | GGUF Q8, Stream | [@drzsdrtfg](https://github.com/drzsdrtfg) | [Soprano-1.1-80M](https://huggingface.co/WalkingCat/Soprano-1.1-80M-GGUF) ultra-lightweight TTS with Qwen3 LM + Vocos decoder |
 | **sopro_tts** | TTS, Clone | en, pt, fr, de | Safetensors, GGUF F16, Stream | [@Brioch](https://github.com/Brioch), [@samuel-vitorino](https://github.com/samuel-vitorino) (model author) | [Sopro V2 Turbo](docs/models/sopro_tts.md) updated for Sopro 2.2.0: 120M zero-shot voice cloning, chunked streaming, and optional voice caching |
 | **sortformer_diar_v2** | Diar | multilingual | GGUF F32/mixed F16, Stream | [@LysanderdeJong](https://github.com/LysanderdeJong) | [NVIDIA Sortformer v2.1](docs/models/sortformer_diar_v2.md) four-speaker streaming diarization; local conversion only pending redistribution approval |
@@ -593,6 +593,25 @@ For native and browser build commands, WASM32/WASM64 memory limits, and Kokoro/e
 
 </details>
 
+<a id="sycl-build"></a>
+<details>
+<summary><strong>SYCL Build (Intel GPUs)</strong></summary>
+
+SYCL builds use the Intel oneAPI DPC++ compiler. Load the oneAPI environment, then enable the backend:
+
+```bash
+source /opt/intel/oneapi/setvars.sh
+cmake -S . -B build/sycl -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_C_COMPILER=icx -DCMAKE_CXX_COMPILER=icpx \
+  -DENGINE_ENABLE_SYCL=ON
+cmake --build build/sycl --target audiocpp_cli -j 8
+```
+
+Run with `--backend sycl`. For requirements and device selection, see [docs/build/sycl.md](docs/build/sycl.md).
+
+</details>
+
 <a id="nix-nixos-build"></a>
 <details>
 <summary><strong>Nix / NixOS Build</strong></summary>
@@ -642,6 +661,7 @@ See the [server guide](app/server/README.md) for configuration and usage.
 | `ENGINE_ENABLE_HIP` | Enable the ggml HIP backend (AMD GPUs). Required for `--backend hip`; mutually exclusive with `ENGINE_ENABLE_CUDA`. | `OFF` |
 | `ENGINE_ENABLE_VULKAN` | Enable the ggml Vulkan backend. Required for `--backend vulkan`. | `OFF` |
 | `ENGINE_ENABLE_METAL` | Enable the ggml Metal backend. Required for `--backend metal`. | `OFF` on most platforms, `ON` on Apple |
+| `ENGINE_ENABLE_SYCL` | Enable the ggml SYCL backend (Intel GPUs, oneAPI DPC++ compiler). Required for `--backend sycl`. | `OFF` |
 | `ENGINE_ENABLE_LLAMAFILE` | Enable llamafile SGEMM support in ggml CPU builds. | `ON` |
 | `ENGINE_ENABLE_CUDA_GRAPHS` | Enable ggml CUDA graphs support when CUDA is enabled. | `ON` |
 | `ENGINE_ENABLE_NATIVE_CPU` | Build ggml CPU kernels with native host ISA flags such as `-march=native`. Disable this for portable CPU kernels or toolchains that reject generated CPU instructions. | `ON` |

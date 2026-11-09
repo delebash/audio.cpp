@@ -2,6 +2,8 @@
 // clip is cloned (kept per clip) when the package carries the encoders.
 #include "engine/community_models/chatterbox_turbo/session.h"
 
+#include "engine/framework/debug/profiler.h"
+
 #include "engine/framework/runtime/options.h"
 #include "engine/framework/text/chunking.h"
 
@@ -115,6 +117,7 @@ void ChatterboxTurboSession::prepare(const runtime::SessionPreparationRequest & 
 }
 
 runtime::TaskResult ChatterboxTurboSession::run(const runtime::TaskRequest & request) {
+    const auto wall_start = std::chrono::steady_clock::now();
     require_prepared("Chatterbox Turbo run");
     if (!request.text_input.has_value() || request.text_input->text.empty()) {
         throw std::runtime_error("Chatterbox Turbo run requires text input");
@@ -133,6 +136,7 @@ runtime::TaskResult ChatterboxTurboSession::run(const runtime::TaskRequest & req
 
     runtime::TaskResult result;
     result.audio_output = std::move(merged_audio);
+    engine::debug::timing_log_scalar("session.wall_ms", engine::debug::elapsed_ms(wall_start));
     return result;
 }
 
