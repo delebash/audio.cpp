@@ -960,7 +960,10 @@ jobs:
   hip:
     name: HIP test binaries (best-effort)
     needs: [check-release, get-version]
-    if: ${{ needs.check-release.outputs.should_release == 'true' }}
+    # jv: its runners are upstream's self-hosted Strix Halo machines (release-hip.yml); a fork has none, so the jobs
+    # sat queued and held "Create release" until GitHub dropped them (v0.9.4-jv.7's first run, 2026-11-09). Skipped
+    # outside upstream's repository — "Create release" waits for it but never needs its success.
+    if: ${{ needs.check-release.outputs.should_release == 'true' && github.repository == '0xShug0/audio.cpp' }}
     permissions:
       contents: read
       actions: read
